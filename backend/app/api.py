@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.auth import create_access_token, get_current_user, hash_password, verify_password
 from app.database import get_db
 from app.models import User
+from app.services.sec_filings import latest_filings, sync_company_filings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -53,3 +54,44 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 @router.get("/auth/me")
 def me(user: User = Depends(get_current_user)) -> dict[str, str | int]:
     return {"id": user.id, "email": user.email}
+
+
+@router.post("/sec/sync/{ticker}")
+def sync_sec_filings(
+    ticker: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, int | str]:
+    try:
+        return sync_company_filings(db, ticker)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception:
+        logger.exception("SEC sync failed for %s", ticker)
+        raise HTTPException(status_code=502, detail="SEC EDGAR sync failed")
+
+
+@router.get("/sec/filings")
+def get_sec_filings(
+    ticker: str | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[dict[str, object]]:
+    filings = latest_filings(db, ticker=ticker, limit=limit)
+    return [
+        {
+            "id": filing.id,
+            "ticker": filing.ticker,
+            "company_name": filing.company_name,
+            "cik": filing.cik,
+            "accession_number": filing.accession_number,
+            "form": filing.form,
+            "filing_date": filing.filing_date.isoformat(),
+            "report_date": filing.report_date.isoformat() if filing.report_date else None,
+            "filing_url": filing.filing_url,
+            "source": filing.source,
+            "ingested_at": filing.ingested_at.isoformat() if filing.ingested_at else None,
+        }
+        for filing in filings
+    ]
