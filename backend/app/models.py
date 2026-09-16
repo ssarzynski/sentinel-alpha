@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, String, Text, UniqueConstraint, func
+from sqlalchemy import JSON, Boolean, Date, DateTime, Float, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -8,7 +8,6 @@ from app.database import Base
 
 class User(Base):
     __tablename__ = "users"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
@@ -19,7 +18,6 @@ class User(Base):
 class SecFiling(Base):
     __tablename__ = "sec_filings"
     __table_args__ = (UniqueConstraint("accession_number", name="uq_sec_filings_accession"),)
-
     id: Mapped[int] = mapped_column(primary_key=True)
     cik: Mapped[str] = mapped_column(String(10), index=True)
     ticker: Mapped[str | None] = mapped_column(String(16), index=True)
@@ -35,11 +33,8 @@ class SecFiling(Base):
 
 
 class Evidence(Base):
-    """Append-only normalized evidence. Application services must never update rows in place."""
-
     __tablename__ = "evidence"
     __table_args__ = (UniqueConstraint("evidence_key", name="uq_evidence_key"),)
-
     id: Mapped[int] = mapped_column(primary_key=True)
     evidence_key: Mapped[str] = mapped_column(String(128), nullable=False)
     asset: Mapped[str | None] = mapped_column(String(32), index=True)
@@ -55,10 +50,7 @@ class Evidence(Base):
 
 
 class RuleEvaluation(Base):
-    """Append-only audit snapshot for one deterministic rule evaluation."""
-
     __tablename__ = "rule_evaluations"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     evaluation_key: Mapped[str] = mapped_column(String(36), unique=True, nullable=False, index=True)
     rule_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
@@ -74,3 +66,21 @@ class RuleEvaluation(Base):
     evidence_categories_json: Mapped[list] = mapped_column(JSON, nullable=False)
     source_families_json: Mapped[list] = mapped_column(JSON, nullable=False)
     evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class Prediction(Base):
+    """Append-only prediction ledger entry created before any outcome is known."""
+    __tablename__ = "predictions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    prediction_key: Mapped[str] = mapped_column(String(36), unique=True, nullable=False, index=True)
+    asset: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    direction: Mapped[str] = mapped_column(String(16), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    reference_price: Mapped[float] = mapped_column(Float, nullable=False)
+    reference_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    market_regime: Mapped[str | None] = mapped_column(String(64))
+    rule_evaluation_ids_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    evidence_ids_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    human_review_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
+    thesis_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
