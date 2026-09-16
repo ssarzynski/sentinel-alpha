@@ -1,0 +1,31 @@
+id: post_event_price_confirmation
+version: "0.1"
+status: experimental
+name: Durable Post-Event Price Confirmation
+purpose: Test whether multi-session price persistence is a stronger confirmation than a single post-event session.
+
+inputs:
+  - event_confirmation
+  - breakout_zone
+  - daily_close
+  - relative_volume
+
+conditions:
+  event_confirmation: true
+  consecutive_sessions_above_breakout_zone: 2
+  maximum_sessions_to_evaluate: 3
+  relative_volume: supportive
+
+output:
+  confirmation: durable_price_confirmation
+
+promotion_requirements:
+  - historical_backtest
+  - prospective_observations
+  - false_confirmation_analysis
+  - missed_confirmation_analysis
+  - independent_review
+
+notes:
+  - This rule is experimental and must not affect production signals until promoted.
+  - The exact breakout-zone and relative-volume definitions must be implemented and versioned before evaluation.
