@@ -1,4 +1,4 @@
-from backend.app.ingestion.sec_edgar import SecEdgarClient
+from app.ingestion.sec_edgar import SecEdgarClient
 
 
 def test_recent_filings_filters_forms_and_builds_archive_url(monkeypatch):
@@ -50,6 +50,6 @@ def test_cik_is_zero_padded(monkeypatch):
             captured["url"] = url
             return Response()
 
-    monkeypatch.setattr("backend.app.ingestion.sec_edgar.httpx.Client", FakeClient)
+    monkeypatch.setattr("app.ingestion.sec_edgar.httpx.Client", FakeClient)
     SecEdgarClient(user_agent="SentinelAlpha tests@example.com").get_submissions("1045810")
     assert captured["url"].endswith("CIK0001045810.json")
