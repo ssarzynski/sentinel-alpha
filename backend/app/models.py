@@ -52,3 +52,25 @@ class Evidence(Base):
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     payload_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+
+
+class RuleEvaluation(Base):
+    """Append-only audit snapshot for one deterministic rule evaluation."""
+
+    __tablename__ = "rule_evaluations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    evaluation_key: Mapped[str] = mapped_column(String(36), unique=True, nullable=False, index=True)
+    rule_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    rule_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    asset: Mapped[str | None] = mapped_column(String(32), index=True)
+    passed: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    human_review_required: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    independent_confirmation_count: Mapped[int] = mapped_column(default=0, nullable=False)
+    facts_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    conditions_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    output_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    evidence_ids_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    evidence_categories_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    source_families_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
