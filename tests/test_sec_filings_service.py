@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.database import Base
 from app.ingestion.sec_edgar import SecFiling as IngestedFiling
-from app.models import SecFiling
+from app.models import Evidence, SecFiling
 from app.services.sec_filings import latest_filings, sync_company_filings
 
 
@@ -28,14 +28,25 @@ def make_session() -> Session:
     return Session(engine)
 
 
-def test_sync_persists_and_deduplicates_filings():
+def test_sync_persists_deduplicates_and_creates_evidence():
     db = make_session()
     first = sync_company_filings(db, "NVDA", client=FakeSecClient())
     second = sync_company_filings(db, "nvda", client=FakeSecClient())
 
-    assert first == {"ticker": "NVDA", "created": 1, "existing": 0}
-    assert second == {"ticker": "NVDA", "created": 0, "existing": 1}
+    assert first == {
+        "ticker": "NVDA",
+        "created": 1,
+        "existing": 0,
+        "evidence_created": 1,
+    }
+    assert second == {
+        "ticker": "NVDA",
+        "created": 0,
+        "existing": 1,
+        "evidence_created": 0,
+    }
     assert db.query(SecFiling).count() == 1
+    assert db.query(Evidence).count() == 1
 
 
 def test_latest_filings_filters_by_ticker():
