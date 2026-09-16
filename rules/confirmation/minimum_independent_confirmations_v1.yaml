@@ -1,0 +1,15 @@
+id: minimum_independent_confirmations
+version: "1.0.0"
+enabled: true
+description: Require at least two independent evidence categories before a candidate can pass the confirmation gate.
+conditions:
+  - field: independent_confirmation_count
+    operator: gte
+    value: 2
+  - field: human_review_required
+    operator: eq
+    value: true
+output:
+  gate: confirmation
+  status: eligible_for_human_review
+  auto_trade: false
