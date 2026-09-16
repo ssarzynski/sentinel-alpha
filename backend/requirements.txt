@@ -8,4 +8,5 @@ python-jose[cryptography]==3.4.0
 passlib[bcrypt]==1.7.4
 redis==5.2.1
 httpx==0.28.1
+PyYAML==6.0.2
 pytest==8.3.5
