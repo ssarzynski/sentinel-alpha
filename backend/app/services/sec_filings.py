@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.ingestion.sec_edgar import SecEdgarClient
 from app.models import SecFiling
+from app.services.evidence import create_evidence_from_sec_filing
 
 
 COMPANIES = {
@@ -31,33 +32,41 @@ def sync_company_filings(
     filings = sec.recent_filings(company["cik"], limit=limit)
     created = 0
     existing = 0
+    evidence_created = 0
 
     for filing in filings:
-        found = db.scalar(
-            select(SecFiling).where(SecFiling.accession_number == filing.accession_number)
-        )
+        found = db.scalar(select(SecFiling).where(SecFiling.accession_number == filing.accession_number))
         if found:
             existing += 1
+            _, made = create_evidence_from_sec_filing(db, found)
+            evidence_created += int(made)
             continue
 
-        db.add(
-            SecFiling(
-                cik=str(filing.cik).zfill(10),
-                ticker=symbol,
-                company_name=company["name"],
-                accession_number=filing.accession_number,
-                form=filing.form,
-                filing_date=_parse_date(filing.filing_date),
-                report_date=_parse_date(filing.report_date),
-                primary_document=filing.primary_document,
-                filing_url=filing.filing_url,
-                source="SEC_EDGAR",
-            )
+        record = SecFiling(
+            cik=str(filing.cik).zfill(10),
+            ticker=symbol,
+            company_name=company["name"],
+            accession_number=filing.accession_number,
+            form=filing.form,
+            filing_date=_parse_date(filing.filing_date),
+            report_date=_parse_date(filing.report_date),
+            primary_document=filing.primary_document,
+            filing_url=filing.filing_url,
+            source="SEC_EDGAR",
         )
+        db.add(record)
+        db.flush()
+        _, made = create_evidence_from_sec_filing(db, record)
+        evidence_created += int(made)
         created += 1
 
     db.commit()
-    return {"ticker": symbol, "created": created, "existing": existing}
+    return {
+        "ticker": symbol,
+        "created": created,
+        "existing": existing,
+        "evidence_created": evidence_created,
+    }
 
 
 def latest_filings(db: Session, ticker: str | None = None, limit: int = 50) -> list[SecFiling]:
