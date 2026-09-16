@@ -1,12 +1,10 @@
-from datetime import datetime
-
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
-from backend.app.database import Base
-from backend.app.ingestion.sec_edgar import SecFiling as IngestedFiling
-from backend.app.models import SecFiling
-from backend.app.services.sec_filings import latest_filings, sync_company_filings
+from app.database import Base
+from app.ingestion.sec_edgar import SecFiling as IngestedFiling
+from app.models import SecFiling
+from app.services.sec_filings import latest_filings, sync_company_filings
 
 
 class FakeSecClient:
