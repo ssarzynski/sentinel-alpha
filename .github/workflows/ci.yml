@@ -2,12 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [main, feat/milestone-1-starter-kit]
+    branches: [main, feat/milestone-1-starter-kit, feat/milestone-2-sec-edgar]
   pull_request:
 
 jobs:
   backend:
     runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}/backend:${{ github.workspace }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
