@@ -11,6 +11,8 @@ from .providers import SEC_FILINGS
 
 SEC_SUBMISSIONS_BASE = "https://data.sec.gov/submissions"
 WATCHED_FORMS = frozenset({"8-K", "8-K/A", "4", "4/A"})
+MAX_DOCUMENT_BYTES = 5_000_000
+SEC_TIMEOUT_SECONDS = 15
 
 
 @dataclass(frozen=True)
@@ -99,19 +101,47 @@ class SecEdgarClient:
         self.user_agent = user_agent.strip()
         self.opener = opener
 
-    def fetch_submissions(self, cik: str | int) -> dict[str, Any]:
-        request = Request(
-            submissions_url(cik),
+    def _request(self, url: str, accept: str) -> Request:
+        return Request(
+            url,
             headers={
                 "User-Agent": self.user_agent,
-                "Accept": "application/json",
+                "Accept": accept,
+                "Accept-Encoding": "gzip, deflate",
             },
         )
-        with self.opener(request, timeout=15) as response:
+
+    def fetch_submissions(self, cik: str | int) -> dict[str, Any]:
+        request = self._request(submissions_url(cik), "application/json")
+        with self.opener(request, timeout=SEC_TIMEOUT_SECONDS) as response:
             payload = json.loads(response.read().decode("utf-8"))
         if not isinstance(payload, dict):
             raise ValueError("SEC submissions response must be a JSON object")
         return payload
+
+    def fetch_filing_document(self, filing: SecFiling) -> str:
+        """Fetch a primary filing document with bounded memory and fail-closed checks."""
+        request = self._request(
+            filing.archive_reference,
+            "text/html, application/xhtml+xml, application/xml, text/xml, text/plain",
+        )
+        with self.opener(request, timeout=SEC_TIMEOUT_SECONDS) as response:
+            content_type = response.headers.get_content_type().lower()
+            if content_type not in {
+                "text/html",
+                "application/xhtml+xml",
+                "application/xml",
+                "text/xml",
+                "text/plain",
+            }:
+                raise ValueError(f"unsupported SEC filing content type: {content_type}")
+            declared_length = response.headers.get("Content-Length")
+            if declared_length is not None and int(declared_length) > MAX_DOCUMENT_BYTES:
+                raise ValueError("SEC filing document exceeds size limit")
+            body = response.read(MAX_DOCUMENT_BYTES + 1)
+        if len(body) > MAX_DOCUMENT_BYTES:
+            raise ValueError("SEC filing document exceeds size limit")
+        return body.decode("utf-8", errors="replace")
 
     def recent_watched_filings(self, cik: str | int) -> list[SecFiling]:
         return parse_recent_filings(self.fetch_submissions(cik))
