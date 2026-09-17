@@ -27,12 +27,13 @@ def setup(db, policy):
     return portfolio
 
 
-def save_history(db, second_family=True):
+def save_history(db, second_family=True, latest_age_minutes=0):
+    anchor = T0 - timedelta(minutes=latest_age_minutes)
     for index in range(22):
-        observed = T0 - timedelta(days=21-index)
-        persist_price_observation(db, PriceObservationInput("NVDA", observed, 100 + index + index % 2, "USD", "A", "exchange", f"a-{index}"))
+        observed = anchor - timedelta(days=21-index)
+        persist_price_observation(db, PriceObservationInput("NVDA", observed, 100 + index + index % 2, "USD", "A", "exchange", f"a-{latest_age_minutes}-{index}"))
         if second_family:
-            persist_price_observation(db, PriceObservationInput("NVDA", observed, 100 + index + index % 2, "USD", "B", "institutional", f"b-{index}"))
+            persist_price_observation(db, PriceObservationInput("NVDA", observed, 100 + index + index % 2, "USD", "B", "institutional", f"b-{latest_age_minutes}-{index}"))
 
 
 def test_evaluation_uses_persisted_policy_and_records_snapshot():
@@ -56,9 +57,10 @@ def test_confirmation_gap_withholds_risk_and_is_recorded():
 
 
 def test_stale_provenance_withholds_risk_even_with_two_families():
-    db = db_session(); portfolio = setup(db, {}); save_history(db)
-    decision = evaluate_and_record_portfolio_policy(db, portfolio, stale_after_minutes=1)
+    db = db_session(); portfolio = setup(db, {}); save_history(db, latest_age_minutes=120)
+    decision = evaluate_and_record_portfolio_policy(db, portfolio, stale_after_minutes=60)
     assert decision.risk_json is None
+    assert decision.risk_data_status == "withheld:data_quality:withhold"
     assert any(item["code"] == "data_quality:stale_market_data" for item in decision.findings_json)
 
 
