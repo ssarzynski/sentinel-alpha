@@ -126,3 +126,22 @@ class ResearchJournalEntry(Base):
     decision: Mapped[str | None] = mapped_column(String(32), index=True)
     production_rule_change_authorized: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class IngestionRun(Base):
+    __tablename__ = "ingestion_runs"
+    __table_args__ = (UniqueConstraint("run_key", name="uq_ingestion_runs_run_key"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_key: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    checked: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    discovered: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    new_records: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    skipped_existing: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    evidence_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    failures_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    config_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False)
