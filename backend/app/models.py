@@ -145,3 +145,34 @@ class IngestionRun(Base):
     failures_json: Mapped[list] = mapped_column(JSON, nullable=False)
     config_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+
+
+class Portfolio(Base):
+    __tablename__ = "portfolios"
+    __table_args__ = (UniqueConstraint("portfolio_key", name="uq_portfolios_portfolio_key"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    portfolio_key: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    base_currency: Mapped[str] = mapped_column(String(8), default="USD", nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="active", nullable=False, index=True)
+    owner_user_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    policy_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class PortfolioPosition(Base):
+    __tablename__ = "portfolio_positions"
+    __table_args__ = (UniqueConstraint("portfolio_id", "asset", name="uq_portfolio_position_asset"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    portfolio_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    asset: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    asset_class: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    cost_basis: Mapped[float | None] = mapped_column(Float)
+    mark_price: Mapped[float] = mapped_column(Float, nullable=False)
+    market_value: Mapped[float] = mapped_column(Float, nullable=False)
+    currency: Mapped[str] = mapped_column(String(8), default="USD", nullable=False)
+    price_source: Mapped[str] = mapped_column(String(64), nullable=False)
+    price_observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True)
