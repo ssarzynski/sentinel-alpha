@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from .alpha_vantage_ingestion import AlphaVantageClient, daily_bar_to_records
+from .evidence_roles import ClassifiedEvidence, EvidenceRole, classify_sec_record
 from .macro_regime import MacroRegimeResult
 from .pipeline import EvaluationResult, evaluate_records
 from .provenance import NormalizedRecord
@@ -53,6 +54,28 @@ def build_nvda_evidence(
     return NvdaEvidenceBundle(records=records, macro=macro)
 
 
+def classify_nvda_evidence(records: tuple[NormalizedRecord, ...]) -> list[ClassifiedEvidence]:
+    """Apply the current conservative NVDA semantic policy.
+
+    Raw SEC filings are context until their event/transaction direction is
+    parsed. Alpha Vantage market observations are explicit market SUPPORT.
+    Other sources fail closed as CONTEXT in the shared pipeline.
+    """
+    classified: list[ClassifiedEvidence] = []
+    for record in records:
+        if record.source.independence_key == "sec":
+            classified.append(classify_sec_record(record))
+        elif record.source.independence_key == "alpha_vantage":
+            classified.append(
+                ClassifiedEvidence(
+                    record,
+                    EvidenceRole.SUPPORT,
+                    "authorized independent NVDA market observation",
+                )
+            )
+    return classified
+
+
 def evaluate_nvda_candidate(
     bundle: NvdaEvidenceBundle,
     *,
@@ -66,6 +89,7 @@ def evaluate_nvda_candidate(
         asset=NVDA,
         status="confirmed",
         records=list(bundle.records),
+        classified_evidence=classify_nvda_evidence(bundle.records),
         proposal=proposal,
         new_entries_this_week=new_entries_this_week,
         conflicts=list(bundle.conflicts),
