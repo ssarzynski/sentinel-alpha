@@ -1,13 +1,14 @@
 """Authentication account model and deny-by-default authorization foundation."""
 
-import hashlib
-import hmac
-import secrets
+import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from pathlib import Path
+
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerifyMismatchError
 
 
 class Role(StrEnum):
@@ -40,25 +41,19 @@ def normalize_username(username: str) -> str:
     return value
 
 
-def hash_password(password: str, *, salt: bytes | None = None) -> str:
-    """Memory-hard stdlib foundation; Argon2id migration follows."""
+_PASSWORD_HASHER = PasswordHasher()
+
+
+def hash_password(password: str) -> str:
     if len(password) < 12:
         raise ValueError("password must contain at least 12 characters")
-    salt = salt or secrets.token_bytes(16)
-    digest = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1, dklen=32)
-    return "scrypt$16384$8$1$" + salt.hex() + "$" + digest.hex()
+    return _PASSWORD_HASHER.hash(password)
 
 
 def verify_password(password: str, encoded: str) -> bool:
     try:
-        algorithm, n, r, p, salt_hex, expected = encoded.split("$")
-        if algorithm != "scrypt":
-            return False
-        actual = hashlib.scrypt(
-            password.encode(), salt=bytes.fromhex(salt_hex), n=int(n), r=int(r), p=int(p), dklen=32
-        ).hex()
-        return hmac.compare_digest(actual, expected)
-    except (ValueError, TypeError):
+        return _PASSWORD_HASHER.verify(encoded, password)
+    except (VerifyMismatchError, InvalidHashError):
         return False
 
 
@@ -153,3 +148,28 @@ class AccountStore:
 def require_admin(account: UserAccount) -> None:
     if account.status is not AccountStatus.ACTIVE or account.role is not Role.ADMIN:
         raise PermissionError("administrator authorization required")
+
+
+
+def provision_bootstrap_admin(store: AccountStore) -> int | None:
+    """One-time admin provisioning from deployment secrets only."""
+    username = os.getenv("SENTINEL_BOOTSTRAP_ADMIN_USERNAME")
+    password = os.getenv("SENTINEL_BOOTSTRAP_ADMIN_PASSWORD")
+    if not username and not password:
+        return None
+    if not username or not password:
+        raise RuntimeError("bootstrap administrator secrets are incomplete")
+    normalized = normalize_username(username)
+    with store._connect() as connection:
+        existing = connection.execute(
+            "SELECT id FROM users WHERE username=?", (normalized,)
+        ).fetchone()
+    if existing is not None:
+        return None
+    return store.create_user(
+        normalized,
+        password,
+        role=Role.ADMIN,
+        status=AccountStatus.ACTIVE,
+        must_change_password=True,
+    )
