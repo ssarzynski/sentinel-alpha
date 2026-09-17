@@ -69,7 +69,6 @@ class RuleEvaluation(Base):
 
 
 class Prediction(Base):
-    """Append-only prediction ledger entry created before any outcome is known."""
     __tablename__ = "predictions"
     id: Mapped[int] = mapped_column(primary_key=True)
     prediction_key: Mapped[str] = mapped_column(String(36), unique=True, nullable=False, index=True)
@@ -87,7 +86,6 @@ class Prediction(Base):
 
 
 class PredictionOutcome(Base):
-    """Immutable observed outcome for one prediction horizon."""
     __tablename__ = "prediction_outcomes"
     __table_args__ = (UniqueConstraint("prediction_id", "horizon_days", name="uq_prediction_outcome_horizon"),)
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -105,4 +103,26 @@ class PredictionOutcome(Base):
     direction_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
     price_source: Mapped[str] = mapped_column(String(64), nullable=False)
     source_record_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class ResearchJournalEntry(Base):
+    """Versioned research artifact. Prior versions are never overwritten."""
+    __tablename__ = "research_journal_entries"
+    __table_args__ = (UniqueConstraint("research_key", "version", name="uq_research_journal_version"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    research_key: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    hypothesis: Mapped[str] = mapped_column(Text, nullable=False)
+    rationale: Mapped[str] = mapped_column(Text, nullable=False)
+    methodology_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    linked_evidence_ids_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    linked_prediction_ids_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    metrics_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    results_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    limitations_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    decision: Mapped[str | None] = mapped_column(String(32), index=True)
+    production_rule_change_authorized: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
