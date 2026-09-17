@@ -47,13 +47,13 @@ def test_form4_purchase_remains_context_and_not_support():
     assert_no_support(classified)
 
 
-def test_adverse_8k_becomes_conflict_and_not_support():
+def test_item_number_only_8k_remains_context_and_not_support():
     classified = classify_sec_document(
         record("material_filing"),
         form="8-K",
         document="Item 4.02 Non-Reliance on Previously Issued Financial Statements",
     )
-    assert [item.role for item in classified] == [EvidenceRole.CONFLICT]
+    assert [item.role for item in classified] == [EvidenceRole.CONTEXT]
     assert_no_support(classified)
 
 
