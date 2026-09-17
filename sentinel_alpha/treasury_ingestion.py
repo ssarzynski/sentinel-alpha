@@ -61,6 +61,10 @@ class TreasuryClient:
             if not date_text or not y2 or not y10:
                 continue
             observed = datetime.fromisoformat(date_text.replace("Z", "+00:00"))
+            if observed.tzinfo is None:
+                observed = observed.replace(tzinfo=timezone.utc)
+            else:
+                observed = observed.astimezone(timezone.utc)
             observations.append(TreasuryYieldObservation(observed, float(y2), float(y10)))
         if not observations:
             raise ValueError("Treasury returned no complete 2Y/10Y yield observations")
