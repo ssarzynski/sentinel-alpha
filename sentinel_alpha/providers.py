@@ -29,6 +29,7 @@ class MappingProviderAdapter:
 SEC_FILINGS = MappingProviderAdapter(SourceIdentity("sec-filings", "SEC", "filings"))
 FINVIZ_SCREENING = MappingProviderAdapter(SourceIdentity("finviz-screening", "Finviz", "screening"))
 MESSARI_RESEARCH = MappingProviderAdapter(SourceIdentity("messari-research", "Messari", "research"))
+MESSARI_MARKET = MappingProviderAdapter(SourceIdentity("messari-market", "Messari", "market"))
 INVO_MARKET = MappingProviderAdapter(SourceIdentity("invo-market", "Invo", "market"))
 
 
@@ -36,6 +37,7 @@ PROVIDERS: dict[str, MappingProviderAdapter] = {
     "sec": SEC_FILINGS,
     "finviz": FINVIZ_SCREENING,
     "messari": MESSARI_RESEARCH,
+    "messari_market": MESSARI_MARKET,
     "invo": INVO_MARKET,
 }
 
