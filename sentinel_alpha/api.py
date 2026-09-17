@@ -60,6 +60,16 @@ def rules() -> dict[str, Any]:
     }
 
 
+@app.get("/v1/audit/verify")
+def verify_audit_chain() -> dict[str, Any]:
+    journal = get_journal()
+    valid = journal.verify_integrity()
+    return {
+        "valid": valid,
+        "status": "verified" if valid else "integrity_failure",
+    }
+
+
 @app.post("/v1/evaluate")
 def evaluate(request: EvaluationInput) -> dict[str, Any]:
     try:
