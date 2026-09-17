@@ -1,8 +1,8 @@
 """FRED macro-series ingestion with explicit provenance and no embedded secrets."""
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-import json
 from typing import Callable
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -49,15 +49,20 @@ class FredClient:
         self.timeout = timeout
 
     def latest(self, series_id: str, *, units: str = "lin") -> FredObservation:
-        params = urlencode({
-            "series_id": series_id,
-            "api_key": self.api_key,
-            "file_type": "json",
-            "sort_order": "desc",
-            "limit": 24,
-            "units": units,
-        })
-        request = Request(f"{FRED_BASE_URL}?{params}", headers={"User-Agent": "sentinel-alpha/0.1"})
+        params = urlencode(
+            {
+                "series_id": series_id,
+                "api_key": self.api_key,
+                "file_type": "json",
+                "sort_order": "desc",
+                "limit": 24,
+                "units": units,
+            }
+        )
+        request = Request(
+            f"{FRED_BASE_URL}?{params}",
+            headers={"User-Agent": "sentinel-alpha/0.1"},
+        )
         with self.opener(request, timeout=self.timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
         for row in payload.get("observations", []):

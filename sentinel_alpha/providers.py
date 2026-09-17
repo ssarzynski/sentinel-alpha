@@ -12,7 +12,9 @@ class ProviderAdapter(Protocol):
 
     source: SourceIdentity
 
-    def normalize(self, payload: Mapping[str, Any], observed_at: datetime) -> NormalizedRecord:
+    def normalize(
+        self, payload: Mapping[str, Any], observed_at: datetime
+    ) -> NormalizedRecord:
         ...
 
 
@@ -22,14 +24,22 @@ class MappingProviderAdapter:
 
     source: SourceIdentity
 
-    def normalize(self, payload: Mapping[str, Any], observed_at: datetime) -> NormalizedRecord:
+    def normalize(
+        self, payload: Mapping[str, Any], observed_at: datetime
+    ) -> NormalizedRecord:
         return normalize_mapping(payload, source=self.source, observed_at=observed_at)
 
 
 SEC_FILINGS = MappingProviderAdapter(SourceIdentity("sec-filings", "SEC", "filings"))
-FINVIZ_SCREENING = MappingProviderAdapter(SourceIdentity("finviz-screening", "Finviz", "screening"))
-MESSARI_RESEARCH = MappingProviderAdapter(SourceIdentity("messari-research", "Messari", "research"))
-MESSARI_MARKET = MappingProviderAdapter(SourceIdentity("messari-market", "Messari", "market"))
+FINVIZ_SCREENING = MappingProviderAdapter(
+    SourceIdentity("finviz-screening", "Finviz", "screening")
+)
+MESSARI_RESEARCH = MappingProviderAdapter(
+    SourceIdentity("messari-research", "Messari", "research")
+)
+MESSARI_MARKET = MappingProviderAdapter(
+    SourceIdentity("messari-market", "Messari", "market")
+)
 INVO_MARKET = MappingProviderAdapter(SourceIdentity("invo-market", "Invo", "market"))
 
 

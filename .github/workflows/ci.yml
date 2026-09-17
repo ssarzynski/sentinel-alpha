@@ -25,5 +25,12 @@ jobs:
           cache: pip
       - name: Install package and tests
         run: python -m pip install --upgrade pip && pip install -e '.[dev]'
+      - name: Run launch-critical lint
+        run: >-
+          ruff check
+          sentinel_alpha/macro_regime.py
+          sentinel_alpha/macro_provenance.py
+          sentinel_alpha/fred_ingestion.py
+          sentinel_alpha/treasury_ingestion.py
       - name: Run tests
         run: pytest -q
