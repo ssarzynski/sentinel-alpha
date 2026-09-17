@@ -32,9 +32,9 @@ def evaluate_records(
     """Evaluate evidence through semantic confirmation and risk controls.
 
     Only explicitly classified SUPPORT evidence may create independent
-    confirmations. Unclassified raw records fail closed as CONTEXT. WARNING and
-    CONTEXT evidence remain visible in the signal evidence trail but cannot
-    manufacture confirmation; CONFLICT evidence blocks through the existing
+    confirmations. Missing classifications are filled as CONTEXT so callers
+    cannot accidentally omit a raw record from the semantic gate. WARNING and
+    CONTEXT never manufacture confirmation; CONFLICT blocks through the shared
     decision engine. Macro context likewise cannot create confirmations.
     """
     effective_conflicts = list(conflicts or [])
@@ -44,14 +44,16 @@ def evaluate_records(
         elif macro.regime is MacroRegime.RISK_OFF:
             effective_conflicts.append("macro_regime_risk_off")
 
-    classified = (
-        list(classified_evidence)
-        if classified_evidence is not None
-        else [classify_uninterpreted(record) for record in records]
-    )
+    supplied = list(classified_evidence or [])
     raw_ids = {id(record) for record in records}
-    if any(id(item.record) not in raw_ids for item in classified):
+    if any(id(item.record) not in raw_ids for item in supplied):
         raise ValueError("classified evidence must refer to records in this evaluation")
+    supplied_ids = [id(item.record) for item in supplied]
+    if len(supplied_ids) != len(set(supplied_ids)):
+        raise ValueError("each record may have at most one evidence classification")
+
+    by_id = {id(item.record): item for item in supplied}
+    classified = [by_id.get(id(record), classify_uninterpreted(record)) for record in records]
 
     support_records = [item.record for item in classified if item.role is EvidenceRole.SUPPORT]
     for item in classified:
