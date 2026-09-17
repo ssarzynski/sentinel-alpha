@@ -180,9 +180,7 @@ class PortfolioPosition(Base):
 
 class MarketPriceObservation(Base):
     __tablename__ = "market_price_observations"
-    __table_args__ = (
-        UniqueConstraint("asset", "source", "source_record_id", name="uq_market_price_source_record"),
-    )
+    __table_args__ = (UniqueConstraint("asset", "source", "source_record_id", name="uq_market_price_source_record"),)
     id: Mapped[int] = mapped_column(primary_key=True)
     asset: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
@@ -195,3 +193,19 @@ class MarketPriceObservation(Base):
     quality_status: Mapped[str] = mapped_column(String(32), default="accepted", nullable=False, index=True)
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class PortfolioPolicyDecision(Base):
+    __tablename__ = "portfolio_policy_decisions"
+    __table_args__ = (UniqueConstraint("decision_key", name="uq_portfolio_policy_decision_key"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    decision_key: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    portfolio_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    compliant: Mapped[bool] = mapped_column(Boolean, nullable=False, index=True)
+    policy_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    analytics_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    risk_json: Mapped[dict | None] = mapped_column(JSON)
+    findings_json: Mapped[list] = mapped_column(JSON, nullable=False)
+    risk_data_status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    human_review_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
