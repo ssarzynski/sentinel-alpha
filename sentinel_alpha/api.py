@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from .admin_api import router as admin_router
 from .evidence_roles import ClassifiedEvidence, EvidenceRole
 from .journal import EvaluationJournal
 from .paper_operations import PaperOperationLedger
@@ -15,6 +16,7 @@ from .providers import get_provider
 from .risk_gate import TradeProposal
 
 app = FastAPI(title="Sentinel Alpha", version="0.1.0")
+app.include_router(admin_router)
 
 
 def get_journal() -> EvaluationJournal:
