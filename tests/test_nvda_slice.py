@@ -53,7 +53,7 @@ def test_nvda_candidate_requires_stop_loss_before_review():
         new_entries_this_week=0,
     )
     assert result.risk.blocked is True
-    assert "stop_loss_required" in result.risk.reasons
+    assert "risk_control_required_before_entry" in result.risk.reasons
 
 
 def test_weekly_entry_cap_blocks_nvda_candidate():
