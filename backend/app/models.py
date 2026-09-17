@@ -84,3 +84,25 @@ class Prediction(Base):
     human_review_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False, index=True)
     thesis_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+class PredictionOutcome(Base):
+    """Immutable observed outcome for one prediction horizon."""
+    __tablename__ = "prediction_outcomes"
+    __table_args__ = (UniqueConstraint("prediction_id", "horizon_days", name="uq_prediction_outcome_horizon"),)
+    id: Mapped[int] = mapped_column(primary_key=True)
+    prediction_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    horizon_days: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    target_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    observed_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    observed_price: Mapped[float] = mapped_column(Float, nullable=False)
+    asset_return: Mapped[float] = mapped_column(Float, nullable=False)
+    benchmark_asset: Mapped[str | None] = mapped_column(String(32))
+    benchmark_reference_price: Mapped[float | None] = mapped_column(Float)
+    benchmark_observed_price: Mapped[float | None] = mapped_column(Float)
+    benchmark_return: Mapped[float | None] = mapped_column(Float)
+    excess_return: Mapped[float | None] = mapped_column(Float)
+    direction_correct: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    price_source: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_record_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
