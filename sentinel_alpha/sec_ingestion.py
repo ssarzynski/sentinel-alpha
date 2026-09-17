@@ -1,9 +1,11 @@
 """SEC EDGAR public submissions ingestion for Sentinel Alpha."""
 
 import json
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from .provenance import NormalizedRecord
@@ -13,6 +15,9 @@ SEC_SUBMISSIONS_BASE = "https://data.sec.gov/submissions"
 WATCHED_FORMS = frozenset({"8-K", "8-K/A", "4", "4/A"})
 MAX_DOCUMENT_BYTES = 5_000_000
 SEC_TIMEOUT_SECONDS = 15
+SEC_MIN_REQUEST_INTERVAL_SECONDS = 0.2
+SEC_MAX_ATTEMPTS = 3
+SEC_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 
 
 @dataclass(frozen=True)
@@ -28,10 +33,7 @@ class SecFiling:
     def archive_reference(self) -> str:
         accession = self.accession_number.replace("-", "")
         cik_number = str(int(self.cik))
-        return (
-            f"https://www.sec.gov/Archives/edgar/data/{cik_number}/"
-            f"{accession}/{self.primary_document}"
-        )
+        return f"https://www.sec.gov/Archives/edgar/data/{cik_number}/{accession}/{self.primary_document}"
 
 
 def normalize_cik(cik: str | int) -> str:
@@ -58,16 +60,7 @@ def parse_recent_filings(payload: dict[str, Any], forms: set[str] | frozenset[st
         if form not in forms:
             continue
         accepted_at = accepted[index] if index < len(accepted) else None
-        filings.append(
-            SecFiling(
-                cik=cik,
-                accession_number=accession,
-                form=form,
-                filing_date=filing_date,
-                primary_document=primary_document,
-                accepted_at=accepted_at,
-            )
-        )
+        filings.append(SecFiling(cik=cik, accession_number=accession, form=form, filing_date=filing_date, primary_document=primary_document, accepted_at=accepted_at))
     return filings
 
 
@@ -79,40 +72,57 @@ def filing_to_record(filing: SecFiling, asset: str) -> NormalizedRecord:
         except ValueError:
             pass
     metric = "insider_filing" if filing.form.startswith("4") else "material_filing"
-    return SEC_FILINGS.normalize(
-        {
-            "asset": asset,
-            "metric": metric,
-            "value": filing.form,
-            "statement": f"SEC {filing.form} filing {filing.accession_number}",
-            "reference": filing.archive_reference,
-            "quality": "high",
-        },
-        observed_at,
-    )
+    return SEC_FILINGS.normalize({"asset": asset, "metric": metric, "value": filing.form, "statement": f"SEC {filing.form} filing {filing.accession_number}", "reference": filing.archive_reference, "quality": "high"}, observed_at)
 
 
 class SecEdgarClient:
-    """Minimal public-data client; caller must supply a declared SEC User-Agent."""
+    """Public-data client with declared identity, conservative pacing, and bounded retry."""
 
-    def __init__(self, user_agent: str, opener: Callable[..., Any] = urlopen) -> None:
+    def __init__(
+        self,
+        user_agent: str,
+        opener: Callable[..., Any] = urlopen,
+        *,
+        sleeper: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         if not user_agent.strip() or "@" not in user_agent:
             raise ValueError("SEC user_agent must identify an application and contact email")
         self.user_agent = user_agent.strip()
         self.opener = opener
+        self.sleeper = sleeper
+        self.clock = clock
+        self._last_request_at: float | None = None
 
     def _request(self, url: str, accept: str) -> Request:
-        return Request(
-            url,
-            headers={
-                "User-Agent": self.user_agent,
-                "Accept": accept,
-            },
-        )
+        return Request(url, headers={"User-Agent": self.user_agent, "Accept": accept})
+
+    def _pace(self) -> None:
+        now = self.clock()
+        if self._last_request_at is not None:
+            remaining = SEC_MIN_REQUEST_INTERVAL_SECONDS - (now - self._last_request_at)
+            if remaining > 0:
+                self.sleeper(remaining)
+        self._last_request_at = self.clock()
+
+    def _open(self, request: Request):
+        """Open an SEC request with pacing and bounded exponential backoff."""
+        for attempt in range(SEC_MAX_ATTEMPTS):
+            self._pace()
+            try:
+                return self.opener(request, timeout=SEC_TIMEOUT_SECONDS)
+            except HTTPError as exc:
+                if exc.code not in SEC_RETRYABLE_STATUS or attempt == SEC_MAX_ATTEMPTS - 1:
+                    raise
+            except (URLError, TimeoutError):
+                if attempt == SEC_MAX_ATTEMPTS - 1:
+                    raise
+            self.sleeper(float(2**attempt))
+        raise RuntimeError("SEC request retry loop exhausted")
 
     def fetch_submissions(self, cik: str | int) -> dict[str, Any]:
         request = self._request(submissions_url(cik), "application/json")
-        with self.opener(request, timeout=SEC_TIMEOUT_SECONDS) as response:
+        with self._open(request) as response:
             payload = json.loads(response.read().decode("utf-8"))
         if not isinstance(payload, dict):
             raise ValueError("SEC submissions response must be a JSON object")
@@ -120,19 +130,10 @@ class SecEdgarClient:
 
     def fetch_filing_document(self, filing: SecFiling) -> str:
         """Fetch a primary filing document with bounded memory and fail-closed checks."""
-        request = self._request(
-            filing.archive_reference,
-            "text/html, application/xhtml+xml, application/xml, text/xml, text/plain",
-        )
-        with self.opener(request, timeout=SEC_TIMEOUT_SECONDS) as response:
+        request = self._request(filing.archive_reference, "text/html, application/xhtml+xml, application/xml, text/xml, text/plain")
+        with self._open(request) as response:
             content_type = response.headers.get_content_type().lower()
-            if content_type not in {
-                "text/html",
-                "application/xhtml+xml",
-                "application/xml",
-                "text/xml",
-                "text/plain",
-            }:
+            if content_type not in {"text/html", "application/xhtml+xml", "application/xml", "text/xml", "text/plain"}:
                 raise ValueError(f"unsupported SEC filing content type: {content_type}")
             declared_length = response.headers.get("Content-Length")
             if declared_length is not None and int(declared_length) > MAX_DOCUMENT_BYTES:
