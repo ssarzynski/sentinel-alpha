@@ -176,3 +176,22 @@ class PortfolioPosition(Base):
     price_observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True)
+
+
+class MarketPriceObservation(Base):
+    __tablename__ = "market_price_observations"
+    __table_args__ = (
+        UniqueConstraint("asset", "source", "source_record_id", name="uq_market_price_source_record"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    asset: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    price: Mapped[float] = mapped_column(Float, nullable=False)
+    currency: Mapped[str] = mapped_column(String(8), default="USD", nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    source_family: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    source_record_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_url: Mapped[str | None] = mapped_column(Text)
+    quality_status: Mapped[str] = mapped_column(String(32), default="accepted", nullable=False, index=True)
+    metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
