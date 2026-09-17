@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from .decision_engine import Decision, evaluate_signal
+from .evidence_roles import ClassifiedEvidence, EvidenceRole, classify_uninterpreted
 from .macro_regime import MacroRegime, MacroRegimeResult
 from .models import Signal
 from .provenance import NormalizedRecord, independent_confirmation_keys
@@ -26,13 +27,15 @@ def evaluate_records(
     new_entries_this_week: int,
     conflicts: list[str] | None = None,
     macro: MacroRegimeResult | None = None,
+    classified_evidence: list[ClassifiedEvidence] | None = None,
 ) -> EvaluationResult:
-    """Evaluate normalized evidence through confirmation and risk controls.
+    """Evaluate evidence through semantic confirmation and risk controls.
 
-    Macro regime is contextual evidence only. It cannot create confirmations,
-    authorize execution, or bypass any risk gate. UNKNOWN macro context fails
-    closed by adding a conflict; risk-off context is surfaced as a conflict for
-    human review rather than silently changing the evidence count.
+    Only explicitly classified SUPPORT evidence may create independent
+    confirmations. Unclassified raw records fail closed as CONTEXT. WARNING and
+    CONTEXT evidence remain visible in the signal evidence trail but cannot
+    manufacture confirmation; CONFLICT evidence blocks through the existing
+    decision engine. Macro context likewise cannot create confirmations.
     """
     effective_conflicts = list(conflicts or [])
     if macro is not None:
@@ -41,7 +44,21 @@ def evaluate_records(
         elif macro.regime is MacroRegime.RISK_OFF:
             effective_conflicts.append("macro_regime_risk_off")
 
-    confirmation_keys = sorted(independent_confirmation_keys(records))
+    classified = (
+        list(classified_evidence)
+        if classified_evidence is not None
+        else [classify_uninterpreted(record) for record in records]
+    )
+    raw_ids = {id(record) for record in records}
+    if any(id(item.record) not in raw_ids for item in classified):
+        raise ValueError("classified evidence must refer to records in this evaluation")
+
+    support_records = [item.record for item in classified if item.role is EvidenceRole.SUPPORT]
+    for item in classified:
+        if item.role is EvidenceRole.CONFLICT:
+            effective_conflicts.append(item.rationale)
+
+    confirmation_keys = sorted(independent_confirmation_keys(support_records))
     evidence = [record.evidence for record in records]
     signal = Signal(
         asset=asset.strip().upper(),
