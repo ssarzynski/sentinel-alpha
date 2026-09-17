@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable
 
+from .evidence_roles import ClassifiedEvidence, classify_uninterpreted
 from .evidence_store import EvidenceStore
 from .pipeline import EvaluationResult, evaluate_records
 from .provenance import NormalizedRecord
@@ -19,7 +20,7 @@ class EvaluationPolicy:
 
 
 class IngestionEvaluationBridge:
-    """Persist, correlate, and evaluate normalized evidence without execution."""
+    """Persist, correlate, and evaluate classified evidence without execution."""
 
     def __init__(
         self,
@@ -36,23 +37,27 @@ class IngestionEvaluationBridge:
         self.clock = clock or (lambda: datetime.now(timezone.utc))
 
     def process(self, records: list[NormalizedRecord]) -> list[EvaluationResult]:
-        grouped: dict[str, list[NormalizedRecord]] = {}
-        for record in records:
-            asset = record.observation.asset.strip().upper()
-            grouped.setdefault(asset, []).append(record)
+        return self.process_classified([classify_uninterpreted(record) for record in records])
+
+    def process_classified(self, items: list[ClassifiedEvidence]) -> list[EvaluationResult]:
+        grouped: dict[str, list[ClassifiedEvidence]] = {}
+        for item in items:
+            asset = item.record.observation.asset.strip().upper()
+            grouped.setdefault(asset, []).append(item)
             if self.evidence_store is not None:
-                self.evidence_store.append(record)
+                self.evidence_store.append_classified(item)
 
         results: list[EvaluationResult] = []
-        for asset, asset_records in grouped.items():
-            evaluation_records = asset_records
+        for asset, asset_items in grouped.items():
+            evaluation_items = asset_items
             if self.evidence_store is not None:
-                evaluation_records = self.evidence_store.window(
+                evaluation_items = self.evidence_store.window_classified(
                     asset,
                     now=self.clock(),
                     hours=self.policy.evidence_window_hours,
                 )
 
+            evaluation_records = [item.record for item in evaluation_items]
             proposal = TradeProposal(
                 asset=asset,
                 stop_loss_defined=self.policy.stop_loss_defined,
@@ -61,6 +66,7 @@ class IngestionEvaluationBridge:
                 asset=asset,
                 status=self.policy.status,
                 records=evaluation_records,
+                classified_evidence=evaluation_items,
                 proposal=proposal,
                 new_entries_this_week=self.policy.new_entries_this_week,
             )
