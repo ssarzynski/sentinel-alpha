@@ -53,3 +53,18 @@ def test_evaluate_endpoint_preserves_risk_blocks():
 def test_request_validation_rejects_negative_entry_count():
     response = client.post("/v1/evaluate", json={"asset": "NVDA", "status": "confirmed", "evidence": [evidence("sec")], "proposal": {"stop_loss_defined": True}, "new_entries_this_week": -1})
     assert response.status_code == 422
+
+
+def test_dashboard_summary_is_read_only_and_preserves_safety_flags():
+    response = client.get("/v1/dashboard/summary")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["automatic_trading"] is False
+    assert body["human_approval_required"] is True
+    assert isinstance(body["audit_chain_valid"], bool)
+
+
+def test_paper_decisions_read_endpoint():
+    response = client.get("/v1/paper-decisions")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)
