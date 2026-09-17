@@ -2,7 +2,7 @@
 
 import os
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from .admin_accounts import AdminAccountService
@@ -40,7 +40,7 @@ class RoleChange(BaseModel):
 
 
 @router.get("/users")
-def users(actor: UserAccount = authenticated_admin) -> list[dict]:
+def users(actor: UserAccount = Depends(authenticated_admin)) -> list[dict]:
     accounts, sessions, audit = _stores()
     service = AdminAccountService(accounts, sessions)
     return [
@@ -50,7 +50,7 @@ def users(actor: UserAccount = authenticated_admin) -> list[dict]:
 
 
 @router.get("/pending")
-def pending(actor: UserAccount = authenticated_admin) -> list[dict]:
+def pending(actor: UserAccount = Depends(authenticated_admin)) -> list[dict]:
     accounts, sessions, audit = _stores()
     service = AdminAccountService(accounts, sessions)
     return [
@@ -77,27 +77,27 @@ def _status_action(actor: UserAccount, user_id: int, status: AccountStatus, even
 
 
 @router.post("/users/{user_id}/approve")
-def approve(user_id: int, actor: UserAccount = authenticated_admin) -> dict:
+def approve(user_id: int, actor: UserAccount = Depends(authenticated_admin)) -> dict:
     return _status_action(actor, user_id, AccountStatus.ACTIVE, "ACCOUNT_APPROVED")
 
 
 @router.post("/users/{user_id}/reject")
-def reject(user_id: int, actor: UserAccount = authenticated_admin) -> dict:
+def reject(user_id: int, actor: UserAccount = Depends(authenticated_admin)) -> dict:
     return _status_action(actor, user_id, AccountStatus.REJECTED, "ACCOUNT_REJECTED")
 
 
 @router.post("/users/{user_id}/disable")
-def disable(user_id: int, actor: UserAccount = authenticated_admin) -> dict:
+def disable(user_id: int, actor: UserAccount = Depends(authenticated_admin)) -> dict:
     return _status_action(actor, user_id, AccountStatus.DISABLED, "ACCOUNT_DISABLED")
 
 
 @router.post("/users/{user_id}/lock")
-def lock(user_id: int, actor: UserAccount = authenticated_admin) -> dict:
+def lock(user_id: int, actor: UserAccount = Depends(authenticated_admin)) -> dict:
     return _status_action(actor, user_id, AccountStatus.LOCKED, "ACCOUNT_LOCKED")
 
 
 @router.post("/users/{user_id}/role")
-def change_role(user_id: int, request: RoleChange, actor: UserAccount = authenticated_admin) -> dict:
+def change_role(user_id: int, request: RoleChange, actor: UserAccount = Depends(authenticated_admin)) -> dict:
     accounts, sessions, audit = _stores()
     service = AdminAccountService(accounts, sessions)
     try:
