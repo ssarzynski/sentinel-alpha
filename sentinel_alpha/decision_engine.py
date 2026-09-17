@@ -7,6 +7,8 @@ from .models import Signal
 
 @dataclass(frozen=True)
 class Decision:
+    """Read-only evaluation result; execution always remains outside this engine."""
+
     status: str
     confirmation_count: int
     strong_alert: bool
