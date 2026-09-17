@@ -46,21 +46,43 @@ def health() -> dict[str, str]:
     return {"status": "ok", "service": "sentinel-alpha"}
 
 
+@app.get("/v1/rules")
+def rules() -> dict[str, Any]:
+    return {
+        "minimum_independent_confirmations": 2,
+        "maximum_new_entries_per_week": 2,
+        "options_allowed": False,
+        "leverage_allowed": False,
+        "risk_control_required_before_entry": True,
+        "insider_selling": "warning_only",
+        "human_approval_required": True,
+        "automatic_trading": False,
+    }
+
+
 @app.post("/v1/evaluate")
 def evaluate(request: EvaluationInput) -> dict[str, Any]:
-    records = [
-        get_provider(item.provider).normalize(item.payload, item.observed_at)
-        for item in request.evidence
-    ]
+    try:
+        records = [
+            get_provider(item.provider).normalize(item.payload, item.observed_at)
+            for item in request.evidence
+        ]
+    except (ValueError, KeyError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    expected_asset = request.asset.strip().upper()
+    if any(record.observation.asset.strip().upper() != expected_asset for record in records):
+        raise HTTPException(status_code=422, detail="evidence asset must match request asset")
+
     proposal = TradeProposal(
-        asset=request.asset.strip().upper(),
+        asset=expected_asset,
         instrument_type=request.proposal.instrument_type,
         leverage=request.proposal.leverage,
         stop_loss_defined=request.proposal.stop_loss_defined,
         insider_selling_warning=request.proposal.insider_selling_warning,
     )
     result = evaluate_records(
-        asset=request.asset,
+        asset=expected_asset,
         status=request.status,
         records=records,
         proposal=proposal,
