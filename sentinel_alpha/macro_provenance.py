@@ -67,7 +67,8 @@ def normalize_macro_inputs(inputs: Mapping[str, MacroInput]) -> list[NormalizedR
     for metric, item in inputs.items():
         if metric != item.metric:
             raise ValueError(
-                f"macro metric key {metric!r} does not match input metric {item.metric!r}"
+                f"macro metric key {metric!r} does not match input metric "
+                f"{item.metric!r}"
             )
         records.append(normalize_macro_input(item))
     return records
