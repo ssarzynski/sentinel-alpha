@@ -102,10 +102,16 @@ class SecEdgarClient:
     def fetch_submissions(self, cik: str | int) -> dict[str, Any]:
         request = Request(
             submissions_url(cik),
-            headers={"User-Agent": self.user_agent, "Accept-Encoding": "gzip, deflate"},
+            headers={
+                "User-Agent": self.user_agent,
+                "Accept": "application/json",
+            },
         )
         with self.opener(request, timeout=15) as response:
-            return json.loads(response.read().decode("utf-8"))
+            payload = json.loads(response.read().decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("SEC submissions response must be a JSON object")
+        return payload
 
     def recent_watched_filings(self, cik: str | int) -> list[SecFiling]:
         return parse_recent_filings(self.fetch_submissions(cik))
