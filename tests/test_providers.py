@@ -23,7 +23,7 @@ def test_provider_normalizes_payload_with_stable_provenance():
         datetime.now(timezone.utc),
     )
     assert record.observation.asset == "NVDA"
-    assert record.source.independence_key == "sec:filings"
+    assert record.source.independence_key == "sec"
     assert record.evidence.reference == "example-reference"
 
 
