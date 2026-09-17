@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from .evidence_roles import ClassifiedEvidence, EvidenceRole
 from .journal import EvaluationJournal
 from .pipeline import evaluate_records
 from .providers import get_provider
@@ -23,6 +24,8 @@ class EvidenceInput(BaseModel):
     provider: str
     observed_at: datetime
     payload: dict[str, Any]
+    role: EvidenceRole = EvidenceRole.CONTEXT
+    rationale: str = "unclassified API evidence defaults to context"
 
 
 class ProposalInput(BaseModel):
@@ -57,6 +60,7 @@ def rules() -> dict[str, Any]:
         "insider_selling": "warning_only",
         "human_approval_required": True,
         "automatic_trading": False,
+        "unclassified_evidence": "context_only",
     }
 
 
@@ -64,10 +68,7 @@ def rules() -> dict[str, Any]:
 def verify_audit_chain() -> dict[str, Any]:
     journal = get_journal()
     valid = journal.verify_integrity()
-    return {
-        "valid": valid,
-        "status": "verified" if valid else "integrity_failure",
-    }
+    return {"valid": valid, "status": "verified" if valid else "integrity_failure"}
 
 
 @app.post("/v1/evaluate")
@@ -76,6 +77,10 @@ def evaluate(request: EvaluationInput) -> dict[str, Any]:
         records = [
             get_provider(item.provider).normalize(item.payload, item.observed_at)
             for item in request.evidence
+        ]
+        classified = [
+            ClassifiedEvidence(record, item.role, item.rationale)
+            for record, item in zip(records, request.evidence, strict=True)
         ]
     except (ValueError, KeyError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -95,6 +100,7 @@ def evaluate(request: EvaluationInput) -> dict[str, Any]:
         asset=expected_asset,
         status=request.status,
         records=records,
+        classified_evidence=classified,
         proposal=proposal,
         new_entries_this_week=request.new_entries_this_week,
         conflicts=request.conflicts,

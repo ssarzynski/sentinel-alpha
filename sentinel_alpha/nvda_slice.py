@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 
 from .alpha_vantage_ingestion import AlphaVantageClient, daily_bar_to_records
+from .evidence_roles import ClassifiedEvidence, classify_sec_record, classify_uninterpreted
 from .macro_regime import MacroRegimeResult
 from .pipeline import EvaluationResult, evaluate_records
 from .provenance import NormalizedRecord
@@ -38,7 +39,7 @@ def load_nvda_sec_evidence(client: SecEdgarClient) -> tuple[NormalizedRecord, ..
 
 
 def load_nvda_market_evidence(client: AlphaVantageClient) -> tuple[NormalizedRecord, ...]:
-    """Load one independently-provenanced NVDA daily market observation group."""
+    """Load NVDA daily market observations without assigning direction."""
     return daily_bar_to_records(client.latest_daily(NVDA))
 
 
@@ -48,9 +49,25 @@ def build_nvda_evidence(
     *,
     macro: MacroRegimeResult | None = None,
 ) -> NvdaEvidenceBundle:
-    """Build the first end-to-end SEC + market NVDA evidence bundle."""
+    """Build the SEC + market NVDA observation bundle."""
     records = load_nvda_sec_evidence(sec_client) + load_nvda_market_evidence(market_client)
     return NvdaEvidenceBundle(records=records, macro=macro)
+
+
+def classify_nvda_evidence(records: tuple[NormalizedRecord, ...]) -> list[ClassifiedEvidence]:
+    """Fail closed until deterministic SEC and market classifiers exist.
+
+    Filing existence and raw daily close/volume are observations, not directional
+    candidate support. SEC receives its specific context rationale; all other raw
+    NVDA observations remain generic context.
+    """
+    classified: list[ClassifiedEvidence] = []
+    for record in records:
+        if record.source.independence_key == "sec":
+            classified.append(classify_sec_record(record))
+        else:
+            classified.append(classify_uninterpreted(record))
+    return classified
 
 
 def evaluate_nvda_candidate(
@@ -66,6 +83,7 @@ def evaluate_nvda_candidate(
         asset=NVDA,
         status="confirmed",
         records=list(bundle.records),
+        classified_evidence=classify_nvda_evidence(bundle.records),
         proposal=proposal,
         new_entries_this_week=new_entries_this_week,
         conflicts=list(bundle.conflicts),

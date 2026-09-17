@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from sentinel_alpha.evidence_roles import ClassifiedEvidence, EvidenceRole
 from sentinel_alpha.journal import EvaluationJournal
 from sentinel_alpha.pipeline import evaluate_records
 from sentinel_alpha.provenance import SourceIdentity, normalize_record
@@ -11,30 +12,11 @@ from sentinel_alpha.risk_gate import TradeProposal
 def evaluation():
     now = datetime.now(timezone.utc)
     records = [
-        normalize_record(
-            asset="NVDA",
-            metric="signal",
-            value=True,
-            source=SourceIdentity("sec", "SEC", "filings"),
-            observed_at=now,
-            statement="SEC confirmation",
-        ),
-        normalize_record(
-            asset="NVDA",
-            metric="signal",
-            value=True,
-            source=SourceIdentity("finviz", "Finviz", "screening"),
-            observed_at=now,
-            statement="Finviz confirmation",
-        ),
+        normalize_record(asset="NVDA", metric="signal", value=True, source=SourceIdentity("sec", "SEC", "filings"), observed_at=now, statement="SEC confirmation"),
+        normalize_record(asset="NVDA", metric="signal", value=True, source=SourceIdentity("finviz", "Finviz", "screening"), observed_at=now, statement="Finviz confirmation"),
     ]
-    return evaluate_records(
-        asset="NVDA",
-        status="confirmed",
-        records=records,
-        proposal=TradeProposal(asset="NVDA", stop_loss_defined=True),
-        new_entries_this_week=0,
-    )
+    classified = [ClassifiedEvidence(item, EvidenceRole.SUPPORT, "journal fixture support") for item in records]
+    return evaluate_records(asset="NVDA", status="confirmed", records=records, classified_evidence=classified, proposal=TradeProposal(asset="NVDA", stop_loss_defined=True), new_entries_this_week=0)
 
 
 def test_append_and_get_round_trip(tmp_path):

@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
+from sentinel_alpha.evidence_roles import ClassifiedEvidence, EvidenceRole
 from sentinel_alpha.evidence_store import EvidenceStore
 from sentinel_alpha.provenance import SourceIdentity, normalize_record
 
@@ -28,6 +29,32 @@ def test_evidence_persists_across_store_restarts(tmp_path):
     assert len(records) == 1
     assert records[0].observation.asset == "BTC"
     assert records[0].source.provider == "SEC"
+
+
+def test_classified_role_persists_across_store_restarts(tmp_path):
+    database = tmp_path / "sentinel.db"
+    now = datetime(2026, 9, 17, 18, tzinfo=timezone.utc)
+    record = make_record("BTC", "Messari", "messari-market", now, "messari:1")
+    first = EvidenceStore(database)
+    assert first.append_classified(
+        ClassifiedEvidence(record, EvidenceRole.SUPPORT, "explicit directional market rule")
+    ) is True
+
+    restarted = EvidenceStore(database)
+    items = restarted.window_classified("BTC", now=now + timedelta(hours=1), hours=24)
+    assert len(items) == 1
+    assert items[0].role is EvidenceRole.SUPPORT
+    assert items[0].rationale == "explicit directional market rule"
+    assert items[0].record.source.provider == "Messari"
+
+
+def test_unclassified_append_persists_as_context(tmp_path):
+    database = tmp_path / "sentinel.db"
+    now = datetime(2026, 9, 17, 18, tzinfo=timezone.utc)
+    store = EvidenceStore(database)
+    store.append(make_record("NVDA", "SEC", "sec-filings", now, "sec:1"))
+    item = store.window_classified("NVDA", now=now, hours=1)[0]
+    assert item.role is EvidenceRole.CONTEXT
 
 
 def test_window_combines_independent_sources_from_different_cycles(tmp_path):
