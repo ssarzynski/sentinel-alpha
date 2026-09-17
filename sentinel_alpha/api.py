@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from .evidence_roles import ClassifiedEvidence, EvidenceRole
 from .journal import EvaluationJournal
+from .paper_operations import PaperOperationLedger
 from .pipeline import evaluate_records
 from .providers import get_provider
 from .risk_gate import TradeProposal
@@ -18,6 +19,10 @@ app = FastAPI(title="Sentinel Alpha", version="0.1.0")
 
 def get_journal() -> EvaluationJournal:
     return EvaluationJournal(os.getenv("SENTINEL_DB_PATH", "sentinel_alpha.db"))
+
+
+def get_paper_ledger() -> PaperOperationLedger:
+    return PaperOperationLedger(os.getenv("SENTINEL_DB_PATH", "sentinel_alpha.db"))
 
 
 class EvidenceInput(BaseModel):
@@ -130,3 +135,41 @@ def get_evaluation(evaluation_id: str) -> dict[str, Any]:
 @app.get("/v1/evaluations")
 def recent_evaluations(limit: int = Query(default=50, ge=1, le=200)) -> list[dict]:
     return get_journal().recent(limit)
+
+
+@app.get("/v1/paper-decisions")
+def recent_paper_decisions(limit: int = Query(default=50, ge=1, le=200)) -> list[dict[str, Any]]:
+    """Read-only paper-operation history for Sentinel Studio."""
+    return [
+        {
+            "paper_id": item.paper_id,
+            "evaluation_id": item.evaluation_id,
+            "asset": item.asset,
+            "created_at": item.created_at,
+            "approved_by_human": item.approved_by_human,
+            "hypothetical_action": item.hypothetical_action,
+            "notes": item.notes,
+        }
+        for item in get_paper_ledger().recent(limit)
+    ]
+
+
+@app.get("/v1/dashboard/summary")
+def dashboard_summary() -> dict[str, Any]:
+    """Small read model for the production dashboard; performs no actions."""
+    journal = get_journal()
+    recent = journal.recent(50)
+    paper = get_paper_ledger().recent(50)
+    strong_alerts = sum(
+        1 for item in recent if item["result"]["decision"].get("strong_alert") is True
+    )
+    blocked = sum(1 for item in recent if item["result"]["risk"].get("blocked") is True)
+    return {
+        "evaluation_count": len(recent),
+        "strong_alert_count": strong_alerts,
+        "blocked_count": blocked,
+        "paper_decision_count": len(paper),
+        "audit_chain_valid": journal.verify_integrity(),
+        "automatic_trading": False,
+        "human_approval_required": True,
+    }
