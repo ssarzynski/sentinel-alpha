@@ -2,48 +2,33 @@ import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 
-type Filing = { id:number; ticker:string|null; company_name:string|null; accession_number:string; form:string; filing_date:string; filing_url:string; source:string };
-type Health = { source:string; status:string; healthy:boolean; stale?:boolean; latest_run?:string|null; started_at?:string; finished_at?:string; failures?:number };
-type Run = { run_key:string; source:string; status:string; started_at:string; finished_at:string|null; checked:number; discovered:number; new_records:number; skipped_existing:number; evidence_rows:number; failures:Array<Record<string,string>> };
+type Filing={accession_number:string;form:string;filing_date:string;company_name:string|null;ticker:string|null;filing_url:string};
+type Health={status:string;healthy:boolean;finished_at?:string};
+type Run={run_key:string;status:string;started_at:string;checked:number;discovered:number;new_records:number;evidence_rows:number;failures:Array<unknown>};
+type Portfolio={portfolio_key:string;name:string;base_currency:string;status:string;policy:Record<string,unknown>};
+type Analytics={nav:number;gross_exposure:number;net_exposure:number;largest_position_weight:number;herfindahl_index:number;stale_assets:string[];asset_class_exposure:Record<string,number>;positions:Array<{asset:string;asset_class:string;market_value:number;weight:number;stale_price:boolean}>};
+type Risk={observations:number;annualized_portfolio_volatility:number;diversification_ratio:number;correlation_matrix:Record<string,Record<string,number>>};
+type Decision={decision_key:string;compliant:boolean;findings:Array<{code:string;severity:string;message:string}>;risk_data_status:string;human_review_status:string;evaluated_at:string};
 
-const authHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("sentinel_token") || ""}` });
-const fmt = (value?: string|null) => value ? new Date(value).toLocaleString() : "—";
+const headers=()=>({Authorization:`Bearer ${localStorage.getItem("sentinel_token")||""}`});
+const fmt=(v?:string|null)=>v?new Date(v).toLocaleString():"—";
+const money=(v?:number)=>v===undefined?"—":new Intl.NumberFormat(undefined,{style:"currency",currency:"USD",maximumFractionDigits:0}).format(v);
+const pct=(v?:number)=>v===undefined?"—":`${(v*100).toFixed(1)}%`;
 
-function App() {
-  const [filings,setFilings]=useState<Filing[]>([]);
-  const [health,setHealth]=useState<Health|null>(null);
-  const [runs,setRuns]=useState<Run[]>([]);
-  const [message,setMessage]=useState("Sign in to load live operations data.");
-
-  useEffect(()=>{
-    if(!localStorage.getItem("sentinel_token")) return;
-    Promise.all([
-      fetch("/api/sec/filings?ticker=NVDA&limit=10",{headers:authHeaders()}),
-      fetch("/api/studio/ingestion/health?source=SEC_FORM4",{headers:authHeaders()}),
-      fetch("/api/studio/ingestion/runs?source=SEC_FORM4&limit=10",{headers:authHeaders()})
-    ]).then(async ([f,h,r])=>{
-      if(!f.ok||!h.ok||!r.ok) throw new Error("operations API unavailable");
-      const [fd,hd,rd]=await Promise.all([f.json(),h.json(),r.json()]);
-      setFilings(fd); setHealth(hd); setRuns(rd); setMessage("Live operational data");
-    }).catch(()=>setMessage("Operations data unavailable. Check authentication and backend health."));
-  },[]);
-
-  const latest=runs[0];
-  return <main>
-    <header><div><span className="eyebrow">SENTINEL ALPHA · STUDIO</span><h1>Operations Console</h1></div><span className={`status ${health?.healthy?"healthy":"warning"}`}>● {health?.healthy?"INGESTION HEALTHY":health?.status?.toUpperCase()||"AUTH REQUIRED"}</span></header>
-    <section className="grid ops-grid">
-      <article><span className="eyebrow">SOURCE HEALTH</span><h2>{health?.status||"Unknown"}</h2><p>SEC Form 4 worker · last finish {fmt(health?.finished_at)}</p></article>
-      <article><span className="eyebrow">LATEST RUN</span><h2>{latest?.new_records ?? "—"} new filings</h2><p>{latest?.discovered ?? "—"} discovered · {latest?.skipped_existing ?? "—"} duplicates skipped</p></article>
-      <article><span className="eyebrow">EVIDENCE OUTPUT</span><h2>{latest?.evidence_rows ?? "—"} objects</h2><p>{latest?.failures.length ?? "—"} failures · human review remains required</p></article>
-    </section>
-    <section className="filings"><div className="section-title"><div><span className="eyebrow">OPERATIONS</span><h2>Recent Ingestion Runs</h2></div><span>{message}</span></div>
-      <div className="run-table"><div className="run-row run-head"><span>Status</span><span>Started</span><span>Checked</span><span>Found</span><span>New</span><span>Evidence</span><span>Failures</span></div>
-      {runs.map(run=><div className="run-row" key={run.run_key}><strong>{run.status}</strong><span>{fmt(run.started_at)}</span><span>{run.checked}</span><span>{run.discovered}</span><span>{run.new_records}</span><span>{run.evidence_rows}</span><span>{run.failures.length}</span></div>)}</div>
-    </section>
-    <section className="filings"><div className="section-title"><div><span className="eyebrow">PRIMARY SOURCE</span><h2>Latest SEC Filings — NVDA</h2></div></div><div className="filing-list">
-      {filings.map(f=><a className="filing-row" key={f.accession_number} href={f.filing_url} target="_blank" rel="noreferrer"><strong>{f.form}</strong><span>{f.filing_date}</span><span>{f.company_name||f.ticker}</span><span>SEC EDGAR ↗</span></a>)}
-    </div></section>
-    <footer>Sentinel Studio · Read-only operations · No automatic trading</footer>
-  </main>;
+function App(){
+ const [filings,setFilings]=useState<Filing[]>([]),[runs,setRuns]=useState<Run[]>([]),[portfolios,setPortfolios]=useState<Portfolio[]>([]);
+ const [health,setHealth]=useState<Health|null>(null),[analytics,setAnalytics]=useState<Analytics|null>(null),[risk,setRisk]=useState<Risk|null>(null),[decisions,setDecisions]=useState<Decision[]>([]);
+ const [selected,setSelected]=useState(""); const [message,setMessage]=useState("Sign in to load live data.");
+ useEffect(()=>{if(!localStorage.getItem("sentinel_token"))return;Promise.all([fetch("/api/sec/filings?ticker=NVDA&limit=10",{headers:headers()}),fetch("/api/studio/ingestion/health?source=SEC_FORM4",{headers:headers()}),fetch("/api/studio/ingestion/runs?source=SEC_FORM4&limit=10",{headers:headers()}),fetch("/api/portfolios",{headers:headers()})]).then(async r=>{if(r.some(x=>!x.ok))throw Error();const [f,h,ru,p]=await Promise.all(r.map(x=>x.json()));setFilings(f);setHealth(h);setRuns(ru);setPortfolios(p);if(p[0])setSelected(p[0].portfolio_key);setMessage("Live operational data");}).catch(()=>setMessage("Data unavailable. Check authentication and backend health."));},[]);
+ useEffect(()=>{if(!selected)return;Promise.all([fetch(`/api/portfolios/${selected}/analytics`,{headers:headers()}),fetch(`/api/portfolios/${selected}/risk`,{headers:headers()}),fetch(`/api/portfolios/${selected}/policy/history?limit=10`,{headers:headers()})]).then(async([a,r,d])=>{if(!a.ok)throw Error();setAnalytics(await a.json());setRisk(r.ok?await r.json():null);setDecisions(d.ok?await d.json():[]);}).catch(()=>{setAnalytics(null);setRisk(null);setDecisions([]);});},[selected]);
+ const latest=runs[0],decision=decisions[0];
+ return <main><header><div><span className="eyebrow">SENTINEL ALPHA · STUDIO</span><h1>Intelligence Console</h1></div><span className={`status ${health?.healthy?"healthy":"warning"}`}>● {health?.healthy?"SYSTEM HEALTHY":health?.status?.toUpperCase()||"AUTH REQUIRED"}</span></header>
+ <section className="grid ops-grid"><article><span className="eyebrow">SOURCE HEALTH</span><h2>{health?.status||"Unknown"}</h2><p>SEC Form 4 · last finish {fmt(health?.finished_at)}</p></article><article><span className="eyebrow">LATEST INGESTION</span><h2>{latest?.new_records??"—"} new</h2><p>{latest?.discovered??"—"} discovered · {latest?.evidence_rows??"—"} evidence</p></article><article><span className="eyebrow">CONTROL</span><h2>Human approval</h2><p>Decision support only · no automatic trading</p></article></section>
+ <section className="filings"><div className="section-title"><div><span className="eyebrow">PORTFOLIO INTELLIGENCE</span><h2>Risk & Exposure</h2></div><select value={selected} onChange={e=>setSelected(e.target.value)}>{portfolios.map(p=><option key={p.portfolio_key} value={p.portfolio_key}>{p.name}</option>)}</select></div>
+ <div className="grid ops-grid"><article><span className="eyebrow">NAV</span><h2>{money(analytics?.nav)}</h2><p>Gross {money(analytics?.gross_exposure)} · Net {money(analytics?.net_exposure)}</p></article><article><span className="eyebrow">CONCENTRATION</span><h2>{pct(analytics?.largest_position_weight)}</h2><p>Largest position · HHI {analytics?.herfindahl_index?.toFixed(3)??"—"}</p></article><article><span className="eyebrow">HISTORICAL RISK</span><h2>{pct(risk?.annualized_portfolio_volatility)}</h2><p>{risk?.observations??"—"} observations · diversification {risk?.diversification_ratio?.toFixed(2)??"—"}</p></article></div>
+ <div className="run-table"><div className="run-row position-head"><span>Asset</span><span>Class</span><span>Value</span><span>Weight</span><span>Data</span></div>{analytics?.positions.map(p=><div className="run-row position-head" key={p.asset}><strong>{p.asset}</strong><span>{p.asset_class}</span><span>{money(p.market_value)}</span><span>{pct(p.weight)}</span><span>{p.stale_price?"STALE":"current"}</span></div>)}</div></section>
+ <section className="filings"><div className="section-title"><div><span className="eyebrow">DECISION LEDGER</span><h2>Policy Findings</h2></div><span>{decision?`${decision.compliant?"COMPLIANT":"REVIEW"} · ${decision.human_review_status}`:"No evaluation recorded"}</span></div>{decisions.map(d=><div className="decision" key={d.decision_key}><strong>{fmt(d.evaluated_at)}</strong><span>{d.risk_data_status}</span><span>{d.findings.length?d.findings.map(f=>`${f.severity}: ${f.message}`).join(" · "):"No policy findings"}</span></div>)}</section>
+ <section className="filings"><div className="section-title"><div><span className="eyebrow">OPERATIONS</span><h2>Recent Ingestion Runs</h2></div><span>{message}</span></div><div className="run-table"><div className="run-row run-head"><span>Status</span><span>Started</span><span>Checked</span><span>Found</span><span>New</span><span>Evidence</span><span>Failures</span></div>{runs.map(r=><div className="run-row" key={r.run_key}><strong>{r.status}</strong><span>{fmt(r.started_at)}</span><span>{r.checked}</span><span>{r.discovered}</span><span>{r.new_records}</span><span>{r.evidence_rows}</span><span>{r.failures.length}</span></div>)}</div></section>
+ <section className="filings"><div className="section-title"><div><span className="eyebrow">PRIMARY SOURCE</span><h2>Latest SEC Filings — NVDA</h2></div></div><div className="filing-list">{filings.map(f=><a className="filing-row" key={f.accession_number} href={f.filing_url} target="_blank" rel="noreferrer"><strong>{f.form}</strong><span>{f.filing_date}</span><span>{f.company_name||f.ticker}</span><span>SEC EDGAR ↗</span></a>)}</div></section><footer>Sentinel Studio · Evidence-led decision support · No automatic trading</footer></main>;
 }
 createRoot(document.getElementById("root")!).render(<React.StrictMode><App/></React.StrictMode>);
