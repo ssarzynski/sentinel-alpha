@@ -42,17 +42,21 @@ class MacroRegimeResult:
         return self.regime is not MacroRegime.UNKNOWN
 
 
-REQUIRED_METRICS = frozenset({
-    "fed_funds_rate",
-    "treasury_2y",
-    "treasury_10y",
-    "inflation_yoy",
-    "unemployment_rate",
-    "volatility_index",
-})
+REQUIRED_METRICS = frozenset(
+    {
+        "fed_funds_rate",
+        "treasury_2y",
+        "treasury_10y",
+        "inflation_yoy",
+        "unemployment_rate",
+        "volatility_index",
+    }
+)
 
 
-def evaluate_macro_regime(inputs: Mapping[str, MacroInput], *, now: datetime | None = None) -> MacroRegimeResult:
+def evaluate_macro_regime(
+    inputs: Mapping[str, MacroInput], *, now: datetime | None = None
+) -> MacroRegimeResult:
     """Classify market context using explicit, auditable thresholds.
 
     Missing or stale critical data fails closed to UNKNOWN. The initial rule set is
@@ -60,7 +64,13 @@ def evaluate_macro_regime(inputs: Mapping[str, MacroInput], *, now: datetime | N
     """
     now = _utc(now or datetime.now(timezone.utc))
     missing = tuple(sorted(REQUIRED_METRICS - set(inputs)))
-    stale = tuple(sorted(name for name in REQUIRED_METRICS & set(inputs) if inputs[name].is_stale(now)))
+    stale = tuple(
+        sorted(
+            name
+            for name in REQUIRED_METRICS & set(inputs)
+            if inputs[name].is_stale(now)
+        )
+    )
     if missing or stale:
         reasons = []
         if missing:
@@ -111,7 +121,12 @@ def evaluate_macro_regime(inputs: Mapping[str, MacroInput], *, now: datetime | N
         score -= 1
         reasons.append("policy rate is restrictive by initial rule threshold")
 
-    regime = MacroRegime.RISK_ON if score >= 2 else MacroRegime.RISK_OFF if score <= -2 else MacroRegime.NEUTRAL
+    if score >= 2:
+        regime = MacroRegime.RISK_ON
+    elif score <= -2:
+        regime = MacroRegime.RISK_OFF
+    else:
+        regime = MacroRegime.NEUTRAL
     return MacroRegimeResult(regime, score, tuple(reasons), (), (), now)
 
 
