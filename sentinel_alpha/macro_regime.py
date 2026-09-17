@@ -8,6 +8,8 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Mapping
 
+MACRO_RULE_VERSION = "macro-v1"
+
 
 class MacroRegime(str, Enum):
     RISK_ON = "risk_on"
@@ -36,6 +38,7 @@ class MacroRegimeResult:
     stale_metrics: tuple[str, ...]
     missing_metrics: tuple[str, ...]
     evaluated_at: datetime
+    rule_version: str = MACRO_RULE_VERSION
 
     @property
     def usable(self) -> bool:
@@ -59,10 +62,12 @@ def evaluate_macro_regime(
 ) -> MacroRegimeResult:
     """Classify market context using explicit, auditable thresholds.
 
-    Missing or stale critical data fails closed to UNKNOWN. The initial rule set is
-    intentionally simple and must be versioned before thresholds are changed.
+    Missing, stale, or mislabeled critical data fails closed to UNKNOWN.
     """
     now = _utc(now or datetime.now(timezone.utc))
+    mismatched = tuple(
+        sorted(metric for metric, item in inputs.items() if metric != item.metric)
+    )
     missing = tuple(sorted(REQUIRED_METRICS - set(inputs)))
     stale = tuple(
         sorted(
@@ -71,12 +76,14 @@ def evaluate_macro_regime(
             if inputs[name].is_stale(now)
         )
     )
-    if missing or stale:
+    if missing or stale or mismatched:
         reasons = []
         if missing:
             reasons.append("missing critical macro data: " + ", ".join(missing))
         if stale:
             reasons.append("stale critical macro data: " + ", ".join(stale))
+        if mismatched:
+            reasons.append("mislabeled macro data: " + ", ".join(mismatched))
         return MacroRegimeResult(MacroRegime.UNKNOWN, 0, tuple(reasons), stale, missing, now)
 
     two_year = inputs["treasury_2y"].value

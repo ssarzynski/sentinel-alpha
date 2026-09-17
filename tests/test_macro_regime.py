@@ -1,6 +1,11 @@
 from datetime import datetime, timedelta, timezone
 
-from sentinel_alpha.macro_regime import MacroInput, MacroRegime, evaluate_macro_regime
+from sentinel_alpha.macro_regime import (
+    MACRO_RULE_VERSION,
+    MacroInput,
+    MacroRegime,
+    evaluate_macro_regime,
+)
 
 NOW = datetime(2026, 9, 17, 20, tzinfo=timezone.utc)
 
@@ -28,12 +33,13 @@ def complete(**overrides):
     return {name: item(name, value) for name, value in values.items()}
 
 
-def test_risk_on_fixture_is_explainable():
+def test_risk_on_fixture_is_explainable_and_versioned():
     result = evaluate_macro_regime(complete(), now=NOW)
     assert result.regime is MacroRegime.RISK_ON
     assert result.usable is True
     assert result.score >= 2
     assert result.reasons
+    assert result.rule_version == MACRO_RULE_VERSION
 
 
 def test_risk_off_fixture_is_explainable():
@@ -68,6 +74,14 @@ def test_stale_critical_metric_fails_closed():
     result = evaluate_macro_regime(inputs, now=NOW)
     assert result.regime is MacroRegime.UNKNOWN
     assert result.stale_metrics == ("treasury_10y",)
+
+
+def test_mislabeled_metric_fails_closed():
+    inputs = complete()
+    inputs["treasury_2y"] = item("treasury_10y", 3.2)
+    result = evaluate_macro_regime(inputs, now=NOW)
+    assert result.regime is MacroRegime.UNKNOWN
+    assert "mislabeled macro data" in result.reasons[0]
 
 
 def test_naive_timestamps_are_treated_as_utc():
