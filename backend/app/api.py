@@ -3,13 +3,14 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
 from app.auth import create_access_token, get_current_user, hash_password, verify_password
 from app.database import get_db
 from app.models import User
 from app.services.ingestion_monitor import ingestion_health, latest_ingestion_runs
+from app.services.portfolios import create_portfolio, list_portfolios, owned_portfolio, portfolio_analytics, portfolio_positions, upsert_position
 from app.services.sec_filings import latest_filings, sync_company_filings
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,31 @@ class RegisterRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class PortfolioCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    base_currency: str = Field(default="USD", min_length=3, max_length=8)
+    policy: dict = Field(default_factory=dict)
+
+
+class PositionUpsertRequest(BaseModel):
+    asset: str = Field(min_length=1, max_length=32)
+    asset_class: str = Field(min_length=1, max_length=32)
+    quantity: float
+    cost_basis: float | None = None
+    mark_price: float = Field(ge=0)
+    currency: str = Field(default="USD", min_length=3, max_length=8)
+    price_source: str = Field(min_length=1, max_length=64)
+    price_observed_at: datetime
+    metadata: dict = Field(default_factory=dict)
+
+
+def _portfolio_or_404(db: Session, user: User, key: str):
+    row = owned_portfolio(db, user, key)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Portfolio not found")
+    return row
 
 
 @router.get("/health")
@@ -55,6 +81,37 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 @router.get("/auth/me")
 def me(user: User = Depends(get_current_user)) -> dict[str, str | int]:
     return {"id": user.id, "email": user.email}
+
+
+@router.post("/portfolios", status_code=status.HTTP_201_CREATED)
+def create_portfolio_endpoint(payload: PortfolioCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict[str, object]:
+    row = create_portfolio(db, user, name=payload.name, base_currency=payload.base_currency, policy=payload.policy)
+    return {"portfolio_key": row.portfolio_key, "name": row.name, "base_currency": row.base_currency, "status": row.status, "policy": row.policy_json}
+
+
+@router.get("/portfolios")
+def list_portfolios_endpoint(db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[dict[str, object]]:
+    return [{"portfolio_key": r.portfolio_key, "name": r.name, "base_currency": r.base_currency, "status": r.status, "policy": r.policy_json} for r in list_portfolios(db, user)]
+
+
+@router.put("/portfolios/{portfolio_key}/positions")
+def upsert_position_endpoint(portfolio_key: str, payload: PositionUpsertRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict[str, object]:
+    portfolio = _portfolio_or_404(db, user, portfolio_key)
+    row = upsert_position(db, portfolio, asset=payload.asset, asset_class=payload.asset_class, quantity=payload.quantity, cost_basis=payload.cost_basis, mark_price=payload.mark_price, currency=payload.currency, price_source=payload.price_source, price_observed_at=payload.price_observed_at, metadata=payload.metadata)
+    return {"asset": row.asset, "asset_class": row.asset_class, "quantity": row.quantity, "cost_basis": row.cost_basis, "mark_price": row.mark_price, "market_value": row.market_value, "currency": row.currency, "price_source": row.price_source, "price_observed_at": row.price_observed_at.isoformat()}
+
+
+@router.get("/portfolios/{portfolio_key}/positions")
+def positions_endpoint(portfolio_key: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[dict[str, object]]:
+    portfolio = _portfolio_or_404(db, user, portfolio_key)
+    return [{"asset": r.asset, "asset_class": r.asset_class, "quantity": r.quantity, "cost_basis": r.cost_basis, "mark_price": r.mark_price, "market_value": r.market_value, "currency": r.currency, "price_source": r.price_source, "price_observed_at": r.price_observed_at.isoformat(), "metadata": r.metadata_json} for r in portfolio_positions(db, portfolio)]
+
+
+@router.get("/portfolios/{portfolio_key}/analytics")
+def analytics_endpoint(portfolio_key: str, stale_after_minutes: int = Query(default=30, ge=1, le=10080), db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict[str, object]:
+    portfolio = _portfolio_or_404(db, user, portfolio_key)
+    result = portfolio_analytics(db, portfolio, as_of=datetime.now(timezone.utc), stale_after_minutes=stale_after_minutes)
+    return {"nav": result.nav, "gross_exposure": result.gross_exposure, "net_exposure": result.net_exposure, "largest_position_weight": result.largest_position_weight, "herfindahl_index": result.herfindahl_index, "stale_assets": list(result.stale_assets), "asset_class_exposure": result.asset_class_exposure, "positions": [{"asset": p.asset, "asset_class": p.asset_class, "market_value": p.market_value, "weight": p.weight, "stale_price": p.stale_price} for p in result.positions]}
 
 
 @router.post("/sec/sync/{ticker}")
