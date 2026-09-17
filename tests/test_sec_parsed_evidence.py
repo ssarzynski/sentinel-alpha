@@ -26,41 +26,45 @@ def assert_no_support(classified: tuple) -> None:
 
 
 def test_form4_sale_becomes_warning_and_not_support():
-    xml = (
-        "<ownershipDocument><nonDerivativeTransaction><transactionCoding>"
-        "<transactionCode>S</transactionCode></transactionCoding>"
-        "</nonDerivativeTransaction></ownershipDocument>"
-    )
+    xml = "<ownershipDocument><nonDerivativeTransaction><transactionCoding><transactionCode>S</transactionCode></transactionCoding></nonDerivativeTransaction></ownershipDocument>"
     classified = classify_sec_document(record("insider_filing"), form="4", document=xml)
     assert [item.role for item in classified] == [EvidenceRole.WARNING]
     assert_no_support(classified)
 
 
 def test_form4_purchase_remains_context_and_not_support():
-    xml = (
-        "<ownershipDocument><nonDerivativeTransaction><transactionCoding>"
-        "<transactionCode>P</transactionCode></transactionCoding>"
-        "</nonDerivativeTransaction></ownershipDocument>"
-    )
+    xml = "<ownershipDocument><nonDerivativeTransaction><transactionCoding><transactionCode>P</transactionCode></transactionCoding></nonDerivativeTransaction></ownershipDocument>"
     classified = classify_sec_document(record("insider_filing"), form="4", document=xml)
     assert [item.role for item in classified] == [EvidenceRole.CONTEXT]
     assert_no_support(classified)
 
 
 def test_item_number_only_8k_remains_context_and_not_support():
-    classified = classify_sec_document(
-        record("material_filing"),
-        form="8-K",
-        document="Item 4.02 Non-Reliance on Previously Issued Financial Statements",
-    )
+    classified = classify_sec_document(record("material_filing"), form="8-K", document="Item 4.02 Non-Reliance on Previously Issued Financial Statements")
     assert [item.role for item in classified] == [EvidenceRole.CONTEXT]
     assert_no_support(classified)
 
 
-def test_unknown_8k_item_remains_context():
+def test_explicit_non_reliance_disclosure_becomes_conflict_not_support():
     classified = classify_sec_document(
-        record("material_filing"), form="8-K", document="Item 8.01 Other Events"
+        record("material_filing"),
+        form="8-K",
+        document="The Audit Committee concluded that previously issued financial statements should no longer be relied upon.",
     )
+    assert [item.role for item in classified] == [EvidenceRole.CONFLICT]
+    assert_no_support(classified)
+
+
+def test_explicit_delisting_notice_becomes_conflict_not_support():
+    classified = classify_sec_document(
+        record("material_filing"), form="8-K", document="The company received a notice of delisting from the exchange."
+    )
+    assert [item.role for item in classified] == [EvidenceRole.CONFLICT]
+    assert_no_support(classified)
+
+
+def test_unknown_8k_item_remains_context():
+    classified = classify_sec_document(record("material_filing"), form="8-K", document="Item 8.01 Other Events")
     assert [item.role for item in classified] == [EvidenceRole.CONTEXT]
     assert_no_support(classified)
 
@@ -73,12 +77,9 @@ def test_malformed_or_unparsed_document_falls_back_to_raw_context():
 
 def test_non_sec_record_is_rejected():
     other = normalize_record(
-        asset="NVDA",
-        metric="daily_close",
-        value=100,
+        asset="NVDA", metric="daily_close", value=100,
         source=SourceIdentity("market", "Market", "api", "market"),
-        observed_at=NOW,
-        statement="market",
+        observed_at=NOW, statement="market",
     )
     with pytest.raises(ValueError):
         classify_sec_document(other, form="4", document="<ownershipDocument />")
