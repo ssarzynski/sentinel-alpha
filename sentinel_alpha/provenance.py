@@ -9,15 +9,17 @@ from .models import Evidence, Observation
 
 @dataclass(frozen=True)
 class SourceIdentity:
-    """Stable identity used to prevent duplicate-source confirmations."""
+    """Stable identity used to prevent duplicate/upstream-source confirmations."""
 
     source_id: str
     provider: str
     channel: str
+    independent_group: str | None = None
 
     @property
     def independence_key(self) -> str:
-        return f"{self.provider.strip().lower()}:{self.channel.strip().lower()}"
+        group = self.independent_group or self.provider
+        return group.strip().lower()
 
 
 @dataclass(frozen=True)
@@ -47,6 +49,8 @@ def normalize_record(
         raise ValueError("metric is required")
     if not source.source_id.strip() or not source.provider.strip() or not source.channel.strip():
         raise ValueError("complete source identity is required")
+    if source.independent_group is not None and not source.independent_group.strip():
+        raise ValueError("independent_group cannot be blank")
 
     observation = Observation(
         asset=asset,
@@ -66,7 +70,7 @@ def normalize_record(
 
 
 def independent_confirmation_keys(records: list[NormalizedRecord]) -> set[str]:
-    """Return unique provider/channel identities represented by records."""
+    """Return unique independent upstream-source groups represented by records."""
     return {record.source.independence_key for record in records}
 
 
