@@ -7,9 +7,14 @@ name = "sentinel-alpha"
 version = "0.1.0"
 description = "Evidence-driven market intelligence and research platform"
 requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "pydantic>=2.9",
+]
 
 [project.optional-dependencies]
 dev = [
+    "httpx>=0.27",
     "pytest>=8",
     "ruff>=0.6",
 ]
