@@ -1,9 +1,11 @@
 import json
 from datetime import timezone
+from email.message import Message
 
 import pytest
 
 from sentinel_alpha.sec_ingestion import (
+    MAX_DOCUMENT_BYTES,
     SecEdgarClient,
     filing_to_record,
     normalize_cik,
@@ -24,6 +26,24 @@ SEC_PAYLOAD = {
         }
     },
 }
+
+
+class FakeResponse:
+    def __init__(self, body: bytes, content_type: str = "text/html", content_length: int | None = None):
+        self.body = body
+        self.headers = Message()
+        self.headers["Content-Type"] = content_type
+        if content_length is not None:
+            self.headers["Content-Length"] = str(content_length)
+
+    def read(self, size: int = -1) -> bytes:
+        return self.body if size < 0 else self.body[:size]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
 
 
 def test_cik_is_zero_padded_for_submissions_api():
@@ -62,3 +82,46 @@ def test_inconsistent_sec_columns_are_rejected():
 def test_client_requires_declared_contact_email():
     with pytest.raises(ValueError, match="contact email"):
         SecEdgarClient("sentinel-alpha")
+
+
+def test_fetch_document_declares_user_agent_and_bounds_read():
+    captured = {}
+
+    def opener(request, timeout):
+        captured["request"] = request
+        captured["timeout"] = timeout
+        return FakeResponse(b"<html>Item 8.01</html>")
+
+    client = SecEdgarClient("Sentinel Alpha admin@example.com", opener=opener)
+    filing = parse_recent_filings(SEC_PAYLOAD)[0]
+    assert client.fetch_filing_document(filing) == "<html>Item 8.01</html>"
+    assert captured["request"].get_header("User-agent") == "Sentinel Alpha admin@example.com"
+    assert captured["request"].full_url == filing.archive_reference
+    assert captured["timeout"] == 15
+
+
+def test_fetch_document_rejects_declared_oversize():
+    def opener(request, timeout):
+        return FakeResponse(b"small", content_length=MAX_DOCUMENT_BYTES + 1)
+
+    client = SecEdgarClient("Sentinel Alpha admin@example.com", opener=opener)
+    with pytest.raises(ValueError, match="exceeds size limit"):
+        client.fetch_filing_document(parse_recent_filings(SEC_PAYLOAD)[0])
+
+
+def test_fetch_document_rejects_streamed_oversize():
+    def opener(request, timeout):
+        return FakeResponse(b"x" * (MAX_DOCUMENT_BYTES + 1))
+
+    client = SecEdgarClient("Sentinel Alpha admin@example.com", opener=opener)
+    with pytest.raises(ValueError, match="exceeds size limit"):
+        client.fetch_filing_document(parse_recent_filings(SEC_PAYLOAD)[0])
+
+
+def test_fetch_document_rejects_binary_content_type():
+    def opener(request, timeout):
+        return FakeResponse(b"binary", content_type="application/octet-stream")
+
+    client = SecEdgarClient("Sentinel Alpha admin@example.com", opener=opener)
+    with pytest.raises(ValueError, match="unsupported SEC filing content type"):
+        client.fetch_filing_document(parse_recent_filings(SEC_PAYLOAD)[0])
