@@ -11,30 +11,40 @@ MACRO_ASSET = "MACRO"
 
 @dataclass(frozen=True)
 class MacroSourcePolicy:
-    """Describe an upstream macro source without overstating independence."""
-
     provider: str
     channel: str
     independent_group: str
 
 
-FRED_POLICY = MacroSourcePolicy(
-    provider="Federal Reserve Bank of St. Louis",
-    channel="fred",
-    independent_group="fred",
-)
+FRED_SERIES_POLICIES = {
+    "DGS2": MacroSourcePolicy(
+        "Federal Reserve Bank of St. Louis", "fred", "federal_reserve_board"
+    ),
+    "DGS10": MacroSourcePolicy(
+        "Federal Reserve Bank of St. Louis", "fred", "federal_reserve_board"
+    ),
+    "FEDFUNDS": MacroSourcePolicy(
+        "Federal Reserve Bank of St. Louis", "fred", "federal_reserve_board"
+    ),
+    "CPIAUCSL": MacroSourcePolicy("Federal Reserve Bank of St. Louis", "fred", "bls"),
+    "UNRATE": MacroSourcePolicy("Federal Reserve Bank of St. Louis", "fred", "bls"),
+    "VIXCLS": MacroSourcePolicy("Federal Reserve Bank of St. Louis", "fred", "cboe"),
+}
 TREASURY_POLICY = MacroSourcePolicy(
-    provider="U.S. Department of the Treasury",
-    channel="daily_treasury_yield_curve",
-    independent_group="us_treasury",
+    "U.S. Department of the Treasury",
+    "daily_treasury_yield_curve",
+    "us_treasury",
 )
 
 
 def source_identity_for_macro_input(item: MacroInput) -> SourceIdentity:
-    """Create a stable source identity from a macro input's provider reference."""
     source = item.source.strip()
     if source.startswith("fred:"):
-        policy = FRED_POLICY
+        series = source.removeprefix("fred:")
+        try:
+            policy = FRED_SERIES_POLICIES[series]
+        except KeyError as exc:
+            raise ValueError(f"unsupported FRED macro series: {series}") from exc
     elif source == "treasury:daily_treasury_yield_curve":
         policy = TREASURY_POLICY
     else:
@@ -62,7 +72,6 @@ def normalize_macro_input(item: MacroInput) -> NormalizedRecord:
 
 
 def normalize_macro_inputs(inputs: Mapping[str, MacroInput]) -> list[NormalizedRecord]:
-    """Normalize macro inputs and reject mismatched mapping labels."""
     records: list[NormalizedRecord] = []
     for metric, item in inputs.items():
         if metric != item.metric:
