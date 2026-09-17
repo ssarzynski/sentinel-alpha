@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.auth import create_access_token, get_current_user, hash_password, verify_password
 from app.database import get_db
 from app.models import User
+from app.services.ingestion_monitor import ingestion_health, latest_ingestion_runs
 from app.services.sec_filings import latest_filings, sync_company_filings
 
 logger = logging.getLogger(__name__)
@@ -57,11 +58,7 @@ def me(user: User = Depends(get_current_user)) -> dict[str, str | int]:
 
 
 @router.post("/sec/sync/{ticker}")
-def sync_sec_filings(
-    ticker: str,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-) -> dict[str, int | str]:
+def sync_sec_filings(ticker: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict[str, int | str]:
     try:
         return sync_company_filings(db, ticker)
     except ValueError as exc:
@@ -72,26 +69,20 @@ def sync_sec_filings(
 
 
 @router.get("/sec/filings")
-def get_sec_filings(
-    ticker: str | None = None,
-    limit: int = Query(default=50, ge=1, le=200),
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-) -> list[dict[str, object]]:
+def get_sec_filings(ticker: str | None = None, limit: int = Query(default=50, ge=1, le=200), db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[dict[str, object]]:
     filings = latest_filings(db, ticker=ticker, limit=limit)
-    return [
-        {
-            "id": filing.id,
-            "ticker": filing.ticker,
-            "company_name": filing.company_name,
-            "cik": filing.cik,
-            "accession_number": filing.accession_number,
-            "form": filing.form,
-            "filing_date": filing.filing_date.isoformat(),
-            "report_date": filing.report_date.isoformat() if filing.report_date else None,
-            "filing_url": filing.filing_url,
-            "source": filing.source,
-            "ingested_at": filing.ingested_at.isoformat() if filing.ingested_at else None,
-        }
-        for filing in filings
-    ]
+    return [{"id": f.id, "ticker": f.ticker, "company_name": f.company_name, "cik": f.cik, "accession_number": f.accession_number, "form": f.form, "filing_date": f.filing_date.isoformat(), "report_date": f.report_date.isoformat() if f.report_date else None, "filing_url": f.filing_url, "source": f.source, "ingested_at": f.ingested_at.isoformat() if f.ingested_at else None} for f in filings]
+
+
+@router.get("/studio/ingestion/runs")
+def studio_ingestion_runs(source: str | None = None, limit: int = Query(default=50, ge=1, le=200), db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[dict[str, object]]:
+    rows = latest_ingestion_runs(db, source=source, limit=limit)
+    return [{"run_key": r.run_key, "source": r.source, "status": r.status, "started_at": r.started_at.isoformat(), "finished_at": r.finished_at.isoformat() if r.finished_at else None, "checked": r.checked, "discovered": r.discovered, "new_records": r.new_records, "skipped_existing": r.skipped_existing, "evidence_rows": r.evidence_rows, "failures": r.failures_json, "config": r.config_json, "metadata": r.metadata_json} for r in rows]
+
+
+@router.get("/studio/ingestion/health")
+def studio_ingestion_health(source: str = "SEC_FORM4", stale_after_minutes: int = Query(default=60, ge=1, le=10080), db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict[str, object]:
+    result = ingestion_health(db, source=source, now=datetime.now(timezone.utc), stale_after_minutes=stale_after_minutes)
+    for field in ("started_at", "finished_at"):
+        if result.get(field): result[field] = result[field].isoformat()
+    return result

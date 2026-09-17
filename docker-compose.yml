@@ -42,6 +42,26 @@ services:
       - "8000:8000"
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
 
+  sec-worker:
+    build:
+      context: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://sentinel:sentinel@postgres:5432/sentinel
+      REDIS_URL: redis://redis:6379/0
+      JWT_SECRET: change-me-in-development
+      SEC_WATCHLIST: ${SEC_WATCHLIST:-NVDA:1045810}
+      SEC_POLL_INTERVAL_SECONDS: ${SEC_POLL_INTERVAL_SECONDS:-900}
+      SEC_USER_AGENT: ${SEC_USER_AGENT:-SentinelAlpha/0.1 research@example.com}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+
   frontend:
     build:
       context: ./frontend
