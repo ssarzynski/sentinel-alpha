@@ -36,6 +36,21 @@ def test_fred_series_share_one_independence_group():
     assert independent_confirmation_keys(records) == {"fred"}
 
 
+def test_treasury_direct_is_distinct_from_fred_redistribution():
+    fred_records = normalize_macro_inputs({
+        "treasury_2y": _input("treasury_2y", "fred:DGS2"),
+    })
+    treasury_records = normalize_macro_inputs({
+        "treasury_2y": _input(
+            "treasury_2y", "treasury:daily_treasury_yield_curve"
+        ),
+    })
+    assert independent_confirmation_keys(fred_records + treasury_records) == {
+        "fred",
+        "us_treasury",
+    }
+
+
 def test_mapping_key_must_match_macro_metric():
     with pytest.raises(ValueError, match="does not match"):
         normalize_macro_inputs({
