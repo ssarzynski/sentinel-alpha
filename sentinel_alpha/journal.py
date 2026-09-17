@@ -24,15 +24,47 @@ class EvaluationJournal:
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database)
+        connection = sqlite3.connect(self.database, timeout=30)
         connection.row_factory = sqlite3.Row
         return connection
 
     def _initialize(self) -> None:
         with self._connect() as connection:
+            existing = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='evaluations'"
+            ).fetchone()
+            if existing is None:
+                connection.execute(
+                    """
+                    CREATE TABLE evaluations (
+                        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                        evaluation_id TEXT UNIQUE NOT NULL,
+                        created_at TEXT NOT NULL,
+                        asset TEXT NOT NULL,
+                        payload TEXT NOT NULL,
+                        previous_hash TEXT NOT NULL,
+                        entry_hash TEXT NOT NULL UNIQUE
+                    )
+                    """
+                )
+                return
+
+            columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(evaluations)").fetchall()
+            }
+            required = {"sequence", "evaluation_id", "created_at", "asset", "payload", "previous_hash", "entry_hash"}
+            if required.issubset(columns):
+                return
+            legacy_required = {"evaluation_id", "created_at", "asset", "payload"}
+            if not legacy_required.issubset(columns):
+                raise RuntimeError("unsupported evaluations schema; manual migration required")
+
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("ALTER TABLE evaluations RENAME TO evaluations_legacy")
             connection.execute(
                 """
-                CREATE TABLE IF NOT EXISTS evaluations (
+                CREATE TABLE evaluations (
                     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
                     evaluation_id TEXT UNIQUE NOT NULL,
                     created_at TEXT NOT NULL,
@@ -43,12 +75,29 @@ class EvaluationJournal:
                 )
                 """
             )
+            previous_hash = GENESIS_HASH
+            rows = connection.execute(
+                "SELECT evaluation_id, created_at, asset, payload FROM evaluations_legacy ORDER BY rowid ASC"
+            ).fetchall()
+            for row in rows:
+                entry_hash = _entry_hash(
+                    previous_hash, row["evaluation_id"], row["created_at"], row["asset"], row["payload"]
+                )
+                connection.execute(
+                    """INSERT INTO evaluations
+                    (evaluation_id, created_at, asset, payload, previous_hash, entry_hash)
+                    VALUES (?, ?, ?, ?, ?, ?)""",
+                    (row["evaluation_id"], row["created_at"], row["asset"], row["payload"], previous_hash, entry_hash),
+                )
+                previous_hash = entry_hash
+            connection.execute("DROP TABLE evaluations_legacy")
 
     def append(self, result: EvaluationResult) -> str:
         evaluation_id = str(uuid4())
         created_at = datetime.now(timezone.utc).isoformat()
         payload = json.dumps(asdict(result), default=str, sort_keys=True, separators=(",", ":"))
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             previous = connection.execute(
                 "SELECT entry_hash FROM evaluations ORDER BY sequence DESC LIMIT 1"
             ).fetchone()
