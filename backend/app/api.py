@@ -10,6 +10,7 @@ from app.auth import create_access_token, get_current_user, hash_password, verif
 from app.database import get_db
 from app.models import User
 from app.services.ingestion_monitor import ingestion_health, latest_ingestion_runs
+from app.services.portfolio_policy_decisions import evaluate_and_record_portfolio_policy, policy_decision_history
 from app.services.portfolio_risk import portfolio_historical_risk
 from app.services.portfolios import create_portfolio, list_portfolios, owned_portfolio, portfolio_analytics, portfolio_positions, upsert_position
 from app.services.sec_filings import latest_filings, sync_company_filings
@@ -51,6 +52,10 @@ def _portfolio_or_404(db: Session, user: User, key: str):
     if row is None:
         raise HTTPException(status_code=404, detail="Portfolio not found")
     return row
+
+
+def _decision_payload(row) -> dict[str, object]:
+    return {"decision_key": row.decision_key, "compliant": row.compliant, "policy": row.policy_json, "analytics": row.analytics_json, "risk": row.risk_json, "findings": row.findings_json, "risk_data_status": row.risk_data_status, "human_review_status": row.human_review_status, "evaluated_at": row.evaluated_at.isoformat()}
 
 
 @router.get("/health")
@@ -116,29 +121,26 @@ def analytics_endpoint(portfolio_key: str, stale_after_minutes: int = Query(defa
 
 
 @router.get("/portfolios/{portfolio_key}/risk")
-def portfolio_risk_endpoint(
-    portfolio_key: str,
-    start: datetime | None = None,
-    end: datetime | None = None,
-    periods_per_year: int = Query(default=252, ge=1, le=100000),
-    min_observations: int = Query(default=20, ge=2, le=10000),
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-) -> dict[str, object]:
+def portfolio_risk_endpoint(portfolio_key: str, start: datetime | None = None, end: datetime | None = None, periods_per_year: int = Query(default=252, ge=1, le=100000), min_observations: int = Query(default=20, ge=2, le=10000), db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict[str, object]:
     portfolio = _portfolio_or_404(db, user, portfolio_key)
     try:
         result = portfolio_historical_risk(db, portfolio, start=start, end=end, periods_per_year=periods_per_year, min_observations=min_observations)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return {
-        "assets": list(result.assets),
-        "observations": result.observations,
-        "correlation_matrix": result.correlation_matrix,
-        "annualized_asset_volatility": result.annualized_asset_volatility,
-        "annualized_portfolio_volatility": result.annualized_portfolio_volatility,
-        "diversification_ratio": result.diversification_ratio,
-        "data_policy": "accepted_provenance_observations_only",
-    }
+    return {"assets": list(result.assets), "observations": result.observations, "correlation_matrix": result.correlation_matrix, "annualized_asset_volatility": result.annualized_asset_volatility, "annualized_portfolio_volatility": result.annualized_portfolio_volatility, "diversification_ratio": result.diversification_ratio, "data_policy": "accepted_provenance_observations_only"}
+
+
+@router.post("/portfolios/{portfolio_key}/policy/evaluate", status_code=status.HTTP_201_CREATED)
+def evaluate_policy_endpoint(portfolio_key: str, stale_after_minutes: int = Query(default=30, ge=1, le=10080), min_observations: int = Query(default=20, ge=2, le=10000), db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> dict[str, object]:
+    portfolio = _portfolio_or_404(db, user, portfolio_key)
+    row = evaluate_and_record_portfolio_policy(db, portfolio, stale_after_minutes=stale_after_minutes, min_observations=min_observations)
+    return _decision_payload(row)
+
+
+@router.get("/portfolios/{portfolio_key}/policy/history")
+def policy_history_endpoint(portfolio_key: str, limit: int = Query(default=50, ge=1, le=200), db: Session = Depends(get_db), user: User = Depends(get_current_user)) -> list[dict[str, object]]:
+    portfolio = _portfolio_or_404(db, user, portfolio_key)
+    return [_decision_payload(row) for row in policy_decision_history(db, portfolio, limit=limit)]
 
 
 @router.post("/sec/sync/{ticker}")
