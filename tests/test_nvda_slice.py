@@ -90,13 +90,13 @@ def test_form4_sale_flows_to_warning_without_confirmation():
     assert result.decision.strong_alert is False
 
 
-def test_adverse_8k_flows_to_conflict_without_confirmation():
+def test_item_only_8k_flows_to_context_without_confirmation_or_conflict():
     records, classified = load_nvda_sec_classified_evidence(FakeSecClient(filing("8-K"), "Item 4.02 Non-Reliance on Previously Issued Financial Statements"))
-    assert [item.role for item in classified] == [EvidenceRole.CONFLICT]
+    assert [item.role for item in classified] == [EvidenceRole.CONTEXT]
     result = evaluate_nvda_candidate(NvdaEvidenceBundle(records, classified_evidence=classified), stop_loss_defined=True, new_entries_this_week=0)
     assert result.decision.confirmation_count == 0
     assert result.decision.strong_alert is False
-    assert result.signal.conflicts
+    assert not result.signal.conflicts
 
 
 def test_sec_fetch_failure_falls_back_to_context():
