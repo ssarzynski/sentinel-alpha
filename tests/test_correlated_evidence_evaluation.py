@@ -29,11 +29,11 @@ def test_bridge_correlates_independent_sources_across_cycles(tmp_path):
     )
 
     first = bridge.process([record(SEC_FILINGS, "BTC", "filing_event", now - timedelta(hours=2), "sec:1")])
-    assert first[0].decision.confirmations == 1
+    assert first[0].decision.confirmation_count == 1
     assert first[0].decision.strong_alert is False
 
     second = bridge.process([record(MESSARI_RESEARCH, "BTC", "price_reaction", now, "messari:1")])
-    assert second[0].decision.confirmations == 2
+    assert second[0].decision.confirmation_count == 2
     assert second[0].decision.strong_alert is True
     assert second[0].risk.requires_human_approval is True
 
@@ -49,7 +49,7 @@ def test_bridge_excludes_stale_evidence(tmp_path):
 
     bridge.process([record(SEC_FILINGS, "ETH", "filing_event", now - timedelta(hours=25), "sec:old")])
     result = bridge.process([record(MESSARI_RESEARCH, "ETH", "price_reaction", now, "messari:new")])[0]
-    assert result.decision.confirmations == 1
+    assert result.decision.confirmation_count == 1
     assert result.decision.strong_alert is False
 
 
@@ -64,7 +64,7 @@ def test_same_provider_across_cycles_counts_once(tmp_path):
 
     bridge.process([record(MESSARI_RESEARCH, "BTC", "metric_a", now - timedelta(hours=1), "messari:a")])
     result = bridge.process([record(MESSARI_RESEARCH, "BTC", "metric_b", now, "messari:b")])[0]
-    assert result.decision.confirmations == 1
+    assert result.decision.confirmation_count == 1
     assert result.decision.strong_alert is False
 
 
@@ -77,5 +77,5 @@ def test_bridge_without_store_preserves_existing_single_cycle_behavior():
             record(MESSARI_RESEARCH, "BTC", "price_reaction", now, "messari:1"),
         ]
     )[0]
-    assert result.decision.confirmations == 2
+    assert result.decision.confirmation_count == 2
     assert result.risk.requires_human_approval is True
