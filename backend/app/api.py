@@ -10,6 +10,7 @@ from app.auth import create_access_token, get_current_user, hash_password, verif
 from app.database import get_db
 from app.models import User
 from app.services.ingestion_monitor import ingestion_health, latest_ingestion_runs
+from app.services.portfolio_risk import portfolio_historical_risk
 from app.services.portfolios import create_portfolio, list_portfolios, owned_portfolio, portfolio_analytics, portfolio_positions, upsert_position
 from app.services.sec_filings import latest_filings, sync_company_filings
 
@@ -112,6 +113,32 @@ def analytics_endpoint(portfolio_key: str, stale_after_minutes: int = Query(defa
     portfolio = _portfolio_or_404(db, user, portfolio_key)
     result = portfolio_analytics(db, portfolio, as_of=datetime.now(timezone.utc), stale_after_minutes=stale_after_minutes)
     return {"nav": result.nav, "gross_exposure": result.gross_exposure, "net_exposure": result.net_exposure, "largest_position_weight": result.largest_position_weight, "herfindahl_index": result.herfindahl_index, "stale_assets": list(result.stale_assets), "asset_class_exposure": result.asset_class_exposure, "positions": [{"asset": p.asset, "asset_class": p.asset_class, "market_value": p.market_value, "weight": p.weight, "stale_price": p.stale_price} for p in result.positions]}
+
+
+@router.get("/portfolios/{portfolio_key}/risk")
+def portfolio_risk_endpoint(
+    portfolio_key: str,
+    start: datetime | None = None,
+    end: datetime | None = None,
+    periods_per_year: int = Query(default=252, ge=1, le=100000),
+    min_observations: int = Query(default=20, ge=2, le=10000),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, object]:
+    portfolio = _portfolio_or_404(db, user, portfolio_key)
+    try:
+        result = portfolio_historical_risk(db, portfolio, start=start, end=end, periods_per_year=periods_per_year, min_observations=min_observations)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "assets": list(result.assets),
+        "observations": result.observations,
+        "correlation_matrix": result.correlation_matrix,
+        "annualized_asset_volatility": result.annualized_asset_volatility,
+        "annualized_portfolio_volatility": result.annualized_portfolio_volatility,
+        "diversification_ratio": result.diversification_ratio,
+        "data_policy": "accepted_provenance_observations_only",
+    }
 
 
 @router.post("/sec/sync/{ticker}")
