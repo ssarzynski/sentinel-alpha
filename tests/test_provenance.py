@@ -10,50 +10,43 @@ from sentinel_alpha.provenance import (
 )
 
 
+def make_record(source: SourceIdentity, metric: str = "signal"):
+    return normalize_record(
+        asset="NVDA",
+        metric=metric,
+        value=True,
+        source=source,
+        observed_at=datetime.now(timezone.utc),
+        statement="confirmation",
+    )
+
+
 def test_normalize_record_canonicalizes_asset_metric_and_quality():
-    now = datetime.now(timezone.utc)
     source = SourceIdentity(source_id="sec-8k", provider="SEC", channel="filings")
     record = normalize_record(
         asset=" nvda ",
         metric=" MATERIAL_EVENT ",
         value=True,
         source=source,
-        observed_at=now,
+        observed_at=datetime.now(timezone.utc),
         statement="8-K filed",
         quality=" HIGH ",
     )
     assert record.observation.asset == "NVDA"
     assert record.observation.metric == "material_event"
     assert record.observation.quality == "high"
-    assert record.source.independence_key == "sec:filings"
+    assert record.source.independence_key == "sec"
 
 
-def test_same_provider_channel_counts_once_even_with_multiple_records():
-    now = datetime.now(timezone.utc)
-    source_a = SourceIdentity(source_id="messari-news", provider="Messari", channel="research")
-    source_b = SourceIdentity(source_id="messari-feed", provider="Messari", channel="research")
+def test_same_provider_different_channels_count_once_by_default():
     records = [
-        normalize_record(
-            asset="BTC",
-            metric="sentiment",
-            value=1,
-            source=source_a,
-            observed_at=now,
-            statement="positive",
-        ),
-        normalize_record(
-            asset="BTC",
-            metric="volume",
-            value=2,
-            source=source_b,
-            observed_at=now,
-            statement="volume increased",
-        ),
+        make_record(SourceIdentity("messari-news", "Messari", "research"), "sentiment"),
+        make_record(SourceIdentity("messari-market", "Messari", "market"), "volume"),
     ]
-    assert independent_confirmation_keys(records) == {"messari:research"}
+    assert independent_confirmation_keys(records) == {"messari"}
 
 
-def test_different_provider_channels_count_independently():
+def test_different_providers_count_independently():
     now = datetime.now(timezone.utc)
     records = [
         normalize_mapping(
@@ -67,16 +60,22 @@ def test_different_provider_channels_count_independently():
             observed_at=now,
         ),
     ]
-    assert len(independent_confirmation_keys(records)) == 2
+    assert independent_confirmation_keys(records) == {"sec", "finviz"}
+
+
+def test_different_vendor_labels_same_upstream_group_count_once():
+    records = [
+        make_record(SourceIdentity("vendor-a", "VendorA", "market", "upstream-x")),
+        make_record(SourceIdentity("vendor-b", "VendorB", "research", "upstream-x")),
+    ]
+    assert independent_confirmation_keys(records) == {"upstream-x"}
+
+
+def test_blank_independent_group_is_rejected():
+    with pytest.raises(ValueError, match="independent_group cannot be blank"):
+        make_record(SourceIdentity("vendor", "Vendor", "market", "   "))
 
 
 def test_incomplete_source_identity_is_rejected():
     with pytest.raises(ValueError, match="complete source identity"):
-        normalize_record(
-            asset="ETH",
-            metric="price",
-            value=1,
-            source=SourceIdentity("", "Messari", "market"),
-            observed_at=datetime.now(timezone.utc),
-            statement="price observation",
-        )
+        make_record(SourceIdentity("", "Messari", "market"))
