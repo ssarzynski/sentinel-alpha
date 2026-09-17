@@ -13,16 +13,8 @@ def payload() -> dict:
         "asset": "NVDA",
         "status": "confirmed",
         "evidence": [
-            {
-                "provider": "sec",
-                "observed_at": now,
-                "payload": {"asset": "NVDA", "metric": "filing", "statement": "8-K"},
-            },
-            {
-                "provider": "finviz",
-                "observed_at": now,
-                "payload": {"asset": "NVDA", "metric": "screen", "statement": "screen"},
-            },
+            {"provider": "sec", "observed_at": now, "role": "support", "rationale": "test classified filing", "payload": {"asset": "NVDA", "metric": "filing", "statement": "classified event"}},
+            {"provider": "finviz", "observed_at": now, "role": "support", "rationale": "test classified screen", "payload": {"asset": "NVDA", "metric": "screen", "statement": "classified screen"}},
         ],
         "proposal": {"stop_loss_defined": True},
         "new_entries_this_week": 0,
