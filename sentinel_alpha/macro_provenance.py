@@ -23,23 +23,28 @@ FRED_POLICY = MacroSourcePolicy(
     channel="fred",
     independent_group="fred",
 )
+TREASURY_POLICY = MacroSourcePolicy(
+    provider="U.S. Department of the Treasury",
+    channel="daily_treasury_yield_curve",
+    independent_group="us_treasury",
+)
 
 
 def source_identity_for_macro_input(item: MacroInput) -> SourceIdentity:
-    """Create a stable source identity from a macro input's provider reference.
-
-    All FRED series share one independence group. Different FRED series therefore
-    cannot masquerade as multiple independent confirmations of the same claim.
-    """
+    """Create a stable source identity from a macro input's provider reference."""
     source = item.source.strip()
     if source.startswith("fred:"):
-        return SourceIdentity(
-            source_id=source,
-            provider=FRED_POLICY.provider,
-            channel=FRED_POLICY.channel,
-            independent_group=FRED_POLICY.independent_group,
-        )
-    raise ValueError(f"unsupported macro source: {item.source}")
+        policy = FRED_POLICY
+    elif source == "treasury:daily_treasury_yield_curve":
+        policy = TREASURY_POLICY
+    else:
+        raise ValueError(f"unsupported macro source: {item.source}")
+    return SourceIdentity(
+        source_id=source,
+        provider=policy.provider,
+        channel=policy.channel,
+        independent_group=policy.independent_group,
+    )
 
 
 def normalize_macro_input(item: MacroInput) -> NormalizedRecord:
