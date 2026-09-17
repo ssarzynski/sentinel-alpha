@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from statistics import median
 
 from sqlalchemy.orm import Session
 
 from app.market_data import PriceObservationInput, normalize_observation
 from app.models import MarketPriceObservation
+
+
+def _utc(value: datetime) -> datetime:
+    """Normalize timestamps read from databases that may drop timezone metadata."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def persist_price_observation(db: Session, raw: PriceObservationInput, *, quality_status: str = "accepted", metadata: dict | None = None) -> MarketPriceObservation:
@@ -19,7 +26,7 @@ def persist_price_observation(db: Session, raw: PriceObservationInput, *, qualit
     ).first()
     if existing is not None:
         same = (
-            existing.observed_at == row.observed_at
+            _utc(existing.observed_at) == _utc(row.observed_at)
             and existing.price == row.price
             and existing.currency == row.currency
             and existing.source_family == row.source_family
@@ -57,7 +64,7 @@ def accepted_price_history(db: Session, asset: str, *, start: datetime | None = 
     rows = query.order_by(MarketPriceObservation.observed_at.asc()).all()
     by_time: defaultdict[datetime, list[float]] = defaultdict(list)
     for row in rows:
-        by_time[row.observed_at].append(row.price)
+        by_time[_utc(row.observed_at)].append(row.price)
     return [(timestamp, float(median(prices))) for timestamp, prices in sorted(by_time.items())]
 
 
