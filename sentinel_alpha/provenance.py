@@ -47,7 +47,11 @@ def normalize_record(
         raise ValueError("asset is required")
     if not metric:
         raise ValueError("metric is required")
-    if not source.source_id.strip() or not source.provider.strip() or not source.channel.strip():
+    if (
+        not source.source_id.strip()
+        or not source.provider.strip()
+        or not source.channel.strip()
+    ):
         raise ValueError("complete source identity is required")
     if source.independent_group is not None and not source.independent_group.strip():
         raise ValueError("independent_group cannot be blank")
