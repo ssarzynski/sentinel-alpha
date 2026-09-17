@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 
+from .alpha_vantage_ingestion import AlphaVantageClient, daily_bar_to_records
 from .macro_regime import MacroRegimeResult
 from .pipeline import EvaluationResult, evaluate_records
 from .provenance import NormalizedRecord
@@ -31,13 +32,25 @@ class NvdaEvidenceBundle:
 
 
 def load_nvda_sec_evidence(client: SecEdgarClient) -> tuple[NormalizedRecord, ...]:
-    """Load current watched NVIDIA filings from the existing SEC adapter.
-
-    SEC filings are one provenance group regardless of how many filings are
-    returned, so multiple filings can never manufacture independent confirmation.
-    """
+    """Load current watched NVIDIA filings from the existing SEC adapter."""
     filings = client.recent_watched_filings(NVDA_CIK)
     return tuple(filing_to_record(filing, NVDA) for filing in filings)
+
+
+def load_nvda_market_evidence(client: AlphaVantageClient) -> tuple[NormalizedRecord, ...]:
+    """Load one independently-provenanced NVDA daily market observation group."""
+    return daily_bar_to_records(client.latest_daily(NVDA))
+
+
+def build_nvda_evidence(
+    sec_client: SecEdgarClient,
+    market_client: AlphaVantageClient,
+    *,
+    macro: MacroRegimeResult | None = None,
+) -> NvdaEvidenceBundle:
+    """Build the first end-to-end SEC + market NVDA evidence bundle."""
+    records = load_nvda_sec_evidence(sec_client) + load_nvda_market_evidence(market_client)
+    return NvdaEvidenceBundle(records=records, macro=macro)
 
 
 def evaluate_nvda_candidate(
@@ -46,11 +59,7 @@ def evaluate_nvda_candidate(
     stop_loss_defined: bool,
     new_entries_this_week: int,
 ) -> EvaluationResult:
-    """Run NVDA evidence through the same confirmation and risk pipeline.
-
-    This function cannot place a trade. It only returns a review decision and
-    always relies on the shared risk gate for human-approval enforcement.
-    """
+    """Run NVDA evidence through shared confirmation and risk controls only."""
     bundle.validate()
     proposal = TradeProposal(asset=NVDA, stop_loss_defined=stop_loss_defined)
     return evaluate_records(
