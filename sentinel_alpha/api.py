@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from .evidence_roles import ClassifiedEvidence, EvidenceRole
 from .journal import EvaluationJournal
+from .paper_operations import PaperOperationLedger
 from .pipeline import evaluate_records
 from .providers import get_provider
 from .risk_gate import TradeProposal
@@ -18,6 +19,10 @@ app = FastAPI(title="Sentinel Alpha", version="0.1.0")
 
 def get_journal() -> EvaluationJournal:
     return EvaluationJournal(os.getenv("SENTINEL_DB_PATH", "sentinel_alpha.db"))
+
+
+def get_paper_ledger() -> PaperOperationLedger:
+    return PaperOperationLedger(os.getenv("SENTINEL_DB_PATH", "sentinel_alpha.db"))
 
 
 class EvidenceInput(BaseModel):
