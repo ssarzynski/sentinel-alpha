@@ -1,6 +1,9 @@
-"""Watchlist-driven SEC ingestion and filing deduplication."""
+"""Watchlist-driven SEC ingestion and persistent filing deduplication."""
 
+import sqlite3
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Protocol
 
 from .provenance import NormalizedRecord
 from .sec_ingestion import SecEdgarClient, filing_to_record
@@ -12,8 +15,13 @@ class WatchAsset:
     cik: str
 
 
+class Deduplicator(Protocol):
+    def accept(self, accession_number: str) -> bool:
+        ...
+
+
 class FilingDeduplicator:
-    """In-memory accession-number deduplicator for one ingestion process."""
+    """In-memory accession-number deduplicator for tests or ephemeral runs."""
 
     def __init__(self) -> None:
         self._seen: set[str] = set()
@@ -25,10 +33,37 @@ class FilingDeduplicator:
         return True
 
 
+class SqliteFilingDeduplicator:
+    """Persistent accession-number deduplicator that survives process restarts."""
+
+    def __init__(self, database: str | Path) -> None:
+        self.database = str(database)
+        with sqlite3.connect(self.database) as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS processed_sec_filings (
+                    accession_number TEXT PRIMARY KEY,
+                    first_seen_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+    def accept(self, accession_number: str) -> bool:
+        accession = accession_number.strip()
+        if not accession:
+            raise ValueError("accession_number is required")
+        with sqlite3.connect(self.database) as connection:
+            cursor = connection.execute(
+                "INSERT OR IGNORE INTO processed_sec_filings (accession_number) VALUES (?)",
+                (accession,),
+            )
+            return cursor.rowcount == 1
+
+
 def ingest_sec_watchlist(
     client: SecEdgarClient,
     assets: list[WatchAsset],
-    deduplicator: FilingDeduplicator | None = None,
+    deduplicator: Deduplicator | None = None,
 ) -> list[NormalizedRecord]:
     """Fetch watched filings for configured assets and normalize unseen filings."""
     deduplicator = deduplicator or FilingDeduplicator()
