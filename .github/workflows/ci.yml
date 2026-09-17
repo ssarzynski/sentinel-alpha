@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, feat/milestone-1-starter-kit, feat/milestone-2-sec-edgar]
+    branches:
+      - main
+      - 'feat/**'
   pull_request:
 
 jobs:
