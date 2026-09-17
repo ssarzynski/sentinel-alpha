@@ -107,7 +107,6 @@ class SecEdgarClient:
             headers={
                 "User-Agent": self.user_agent,
                 "Accept": accept,
-                "Accept-Encoding": "gzip, deflate",
             },
         )
 
