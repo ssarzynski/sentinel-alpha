@@ -2,11 +2,12 @@
 
 import os
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Cookie, Depends, HTTPException
 from pydantic import BaseModel
 
 from .admin_accounts import AdminAccountService
 from .auth import AccountStatus, AccountStore, Role, UserAccount, require_admin
+from .browser_auth import SESSION_COOKIE, require_csrf
 from .security_audit import SecurityAuditLog
 from .sessions import SessionStore
 
@@ -18,10 +19,11 @@ def _stores() -> tuple[AccountStore, SessionStore, SecurityAuditLog]:
     return AccountStore(database), SessionStore(database), SecurityAuditLog(database)
 
 
-def authenticated_admin(authorization: str | None = Header(default=None)) -> UserAccount:
-    if not authorization or not authorization.startswith("Bearer "):
+def authenticated_admin(
+    token: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+) -> UserAccount:
+    if not token:
         raise HTTPException(status_code=401, detail="authentication required")
-    token = authorization.removeprefix("Bearer ").strip()
     accounts, sessions, audit = _stores()
     account = sessions.validate(token)
     if account is None:
@@ -77,27 +79,48 @@ def _status_action(actor: UserAccount, user_id: int, status: AccountStatus, even
 
 
 @router.post("/users/{user_id}/approve")
-def approve(user_id: int, actor: UserAccount = Depends(authenticated_admin)) -> dict:
+def approve(
+    user_id: int,
+    actor: UserAccount = Depends(authenticated_admin),
+    _: None = Depends(require_csrf),
+) -> dict:
     return _status_action(actor, user_id, AccountStatus.ACTIVE, "ACCOUNT_APPROVED")
 
 
 @router.post("/users/{user_id}/reject")
-def reject(user_id: int, actor: UserAccount = Depends(authenticated_admin)) -> dict:
+def reject(
+    user_id: int,
+    actor: UserAccount = Depends(authenticated_admin),
+    _: None = Depends(require_csrf),
+) -> dict:
     return _status_action(actor, user_id, AccountStatus.REJECTED, "ACCOUNT_REJECTED")
 
 
 @router.post("/users/{user_id}/disable")
-def disable(user_id: int, actor: UserAccount = Depends(authenticated_admin)) -> dict:
+def disable(
+    user_id: int,
+    actor: UserAccount = Depends(authenticated_admin),
+    _: None = Depends(require_csrf),
+) -> dict:
     return _status_action(actor, user_id, AccountStatus.DISABLED, "ACCOUNT_DISABLED")
 
 
 @router.post("/users/{user_id}/lock")
-def lock(user_id: int, actor: UserAccount = Depends(authenticated_admin)) -> dict:
+def lock(
+    user_id: int,
+    actor: UserAccount = Depends(authenticated_admin),
+    _: None = Depends(require_csrf),
+) -> dict:
     return _status_action(actor, user_id, AccountStatus.LOCKED, "ACCOUNT_LOCKED")
 
 
 @router.post("/users/{user_id}/role")
-def change_role(user_id: int, request: RoleChange, actor: UserAccount = Depends(authenticated_admin)) -> dict:
+def change_role(
+    user_id: int,
+    request: RoleChange,
+    actor: UserAccount = Depends(authenticated_admin),
+    _: None = Depends(require_csrf),
+) -> dict:
     accounts, sessions, audit = _stores()
     service = AdminAccountService(accounts, sessions)
     try:
