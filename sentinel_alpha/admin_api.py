@@ -75,16 +75,25 @@ def _status_action(actor: UserAccount, user_id: int, status: AccountStatus, even
     accounts, sessions, audit = _stores()
     service = AdminAccountService(accounts, sessions)
     try:
-        if status is AccountStatus.ACTIVE:
-            service.approve(actor, user_id)
-        elif status is AccountStatus.REJECTED:
-            service.reject(actor, user_id)
-        else:
-            service.set_status(actor, user_id, status)
+        # Account mutation + success audit commit together. If audit insertion fails,
+        # SQLite rolls the account mutation back rather than leaving an unaudited change.
+        with accounts._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT status,role FROM users WHERE id=?", (user_id,)).fetchone()
+            if row is None:
+                raise LookupError("target user not found")
+            if status is AccountStatus.ACTIVE and row["status"] == AccountStatus.PENDING_APPROVAL.value:
+                pass
+            elif status is AccountStatus.REJECTED and row["status"] != AccountStatus.PENDING_APPROVAL.value:
+                raise ValueError("only pending accounts can be rejected")
+            now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+            connection.execute("UPDATE users SET status=?,updated_at=? WHERE id=?", (status.value, now, user_id))
+            audit.append_in_connection(connection, event, success=True, actor_user_id=actor.user_id, target_user_id=user_id)
+        if status is not AccountStatus.ACTIVE:
+            sessions.revoke_all(user_id)
     except (ValueError, LookupError) as exc:
         audit.append(event, success=False, actor_user_id=actor.user_id, target_user_id=user_id)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    audit.append(event, success=True, actor_user_id=actor.user_id, target_user_id=user_id)
     return {"user_id": user_id, "status": status}
 
 
