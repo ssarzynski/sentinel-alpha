@@ -3,6 +3,7 @@
 import hashlib
 import os
 import secrets
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Cookie, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
@@ -149,9 +150,64 @@ class MfaRecoveryChallenge(BaseModel):
     code: str = Field(min_length=32, max_length=32, pattern=r"^[0-9a-fA-F]{32}$")
 
 
+def _recovery_attempt_allowed(auth: AuthenticationService, user_id: int, session_token: str, source: str | None) -> tuple[bool, int]:
+    now = datetime.now(timezone.utc)
+    session_fp = hashlib.sha256(session_token.encode()).hexdigest()[:16]
+    source_fp = auth._source_fingerprint(source)
+    with auth.accounts._connect() as connection:
+        connection.execute("""CREATE TABLE IF NOT EXISTS mfa_recovery_attempts (
+            user_id INTEGER NOT NULL, session_fingerprint TEXT NOT NULL,
+            source_fingerprint TEXT NOT NULL, failures INTEGER NOT NULL DEFAULT 0,
+            blocked_until TEXT, PRIMARY KEY(user_id,session_fingerprint,source_fingerprint)
+        )""")
+        row = connection.execute(
+            "SELECT failures,blocked_until FROM mfa_recovery_attempts WHERE user_id=? AND session_fingerprint=? AND source_fingerprint=?",
+            (user_id, session_fp, source_fp or "unknown"),
+        ).fetchone()
+    if row and row["blocked_until"]:
+        until = datetime.fromisoformat(row["blocked_until"])
+        if until > now:
+            return False, max(1, int((until-now).total_seconds()))
+    return True, 0
+
+
+def _record_recovery_failure(auth: AuthenticationService, user_id: int, session_token: str, source: str | None) -> int:
+    now = datetime.now(timezone.utc)
+    session_fp = hashlib.sha256(session_token.encode()).hexdigest()[:16]
+    source_fp = auth._source_fingerprint(source) or "unknown"
+    with auth.accounts._connect() as connection:
+        connection.execute("""CREATE TABLE IF NOT EXISTS mfa_recovery_attempts (
+            user_id INTEGER NOT NULL, session_fingerprint TEXT NOT NULL,
+            source_fingerprint TEXT NOT NULL, failures INTEGER NOT NULL DEFAULT 0,
+            blocked_until TEXT, PRIMARY KEY(user_id,session_fingerprint,source_fingerprint)
+        )""")
+        row = connection.execute(
+            "SELECT failures FROM mfa_recovery_attempts WHERE user_id=? AND session_fingerprint=? AND source_fingerprint=?",
+            (user_id, session_fp, source_fp),
+        ).fetchone()
+        failures = (int(row["failures"]) if row else 0) + 1
+        blocked = now + timedelta(minutes=15) if failures >= 5 else None
+        connection.execute(
+            """INSERT INTO mfa_recovery_attempts(user_id,session_fingerprint,source_fingerprint,failures,blocked_until)
+            VALUES(?,?,?,?,?) ON CONFLICT(user_id,session_fingerprint,source_fingerprint)
+            DO UPDATE SET failures=excluded.failures,blocked_until=excluded.blocked_until""",
+            (user_id, session_fp, source_fp, failures, blocked.isoformat() if blocked else None),
+        )
+    return 900 if blocked else 0
+
+
+def _clear_recovery_failures(auth: AuthenticationService, user_id: int, session_token: str, source: str | None) -> None:
+    with auth.accounts._connect() as connection:
+        connection.execute(
+            "DELETE FROM mfa_recovery_attempts WHERE user_id=? AND session_fingerprint=? AND source_fingerprint=?",
+            (user_id, hashlib.sha256(session_token.encode()).hexdigest()[:16], auth._source_fingerprint(source) or "unknown"),
+        )
+
+
 @router.post("/mfa/recovery/verify")
 def verify_mfa_recovery(
     payload: MfaRecoveryChallenge,
+    request: Request,
     session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE),
     csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
     csrf_header: str | None = Header(default=None, alias="X-CSRF-Token"),
@@ -163,9 +219,16 @@ def verify_mfa_recovery(
     account = sessions.validate(session_token)
     if account is None or account.role is not Role.ADMIN:
         raise HTTPException(status_code=401, detail="authentication required")
+    source = request.client.host if request.client else None
+    allowed, retry = _recovery_attempt_allowed(auth, account.user_id, session_token, source)
+    if not allowed:
+        auth.audit.append("MFA_RECOVERY_RATE_LIMITED", success=False, actor_user_id=account.user_id)
+        raise HTTPException(status_code=429, detail="MFA verification failed", headers={"Retry-After": str(retry)})
     mfa = AdminMfaStore(auth.accounts.database, auth.audit)
     if not mfa.enabled(account) or not mfa.verify_recovery_code(account, payload.code.casefold()):
-        raise HTTPException(status_code=401, detail="MFA verification failed")
+        retry = _record_recovery_failure(auth, account.user_id, session_token, source)
+        raise HTTPException(status_code=429 if retry else 401, detail="MFA verification failed", headers={"Retry-After": str(retry)} if retry else None)
+    _clear_recovery_failures(auth, account.user_id, session_token, source)
     sessions.mark_mfa_verified(session_token, account.user_id)
     return {"mfa_verified": True, "factor": "recovery_code"}
 
