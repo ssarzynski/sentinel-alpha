@@ -102,6 +102,31 @@ class MfaChallenge(BaseModel):
     code: str = Field(pattern=r"^[0-9]{6}$")
 
 
+class MfaRecoveryChallenge(BaseModel):
+    code: str = Field(min_length=16, max_length=16, pattern=r"^[0-9a-fA-F]{16}$")
+
+
+@router.post("/mfa/recovery/verify")
+def verify_mfa_recovery(
+    payload: MfaRecoveryChallenge,
+    session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+    csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
+    csrf_header: str | None = Header(default=None, alias="X-CSRF-Token"),
+) -> dict:
+    require_csrf(csrf_cookie, csrf_header)
+    if not session_token:
+        raise HTTPException(status_code=401, detail="authentication required")
+    auth, sessions = _service()
+    account = sessions.validate(session_token)
+    if account is None or account.role is not Role.ADMIN:
+        raise HTTPException(status_code=401, detail="authentication required")
+    mfa = AdminMfaStore(auth.accounts.database, auth.audit)
+    if not mfa.enabled(account) or not mfa.verify_recovery_code(account, payload.code.casefold()):
+        raise HTTPException(status_code=401, detail="MFA verification failed")
+    sessions.mark_mfa_verified(session_token, account.user_id)
+    return {"mfa_verified": True, "factor": "recovery_code"}
+
+
 @router.post("/mfa/verify")
 def verify_mfa(
     payload: MfaChallenge,
@@ -200,6 +225,20 @@ def enroll_mfa(
             "Keep this setup screen private.",
         ],
     }
+
+
+@router.post("/mfa/recovery/generate")
+def generate_mfa_recovery_codes(
+    session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+    csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
+    csrf_header: str | None = Header(default=None, alias="X-CSRF-Token"),
+) -> dict:
+    require_csrf(csrf_cookie, csrf_header)
+    auth, sessions, account = _admin_for_mfa(session_token)
+    if not sessions.mfa_verified(session_token):
+        raise HTTPException(status_code=403, detail="administrator MFA verification required")
+    codes = AdminMfaStore(auth.accounts.database, auth.audit).generate_recovery_codes(account)
+    return {"recovery_codes": codes, "display_once": True}
 
 
 @router.post("/mfa/confirm")
