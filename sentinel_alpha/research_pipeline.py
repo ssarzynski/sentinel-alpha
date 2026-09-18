@@ -31,6 +31,20 @@ class ResearchPipelineResult:
     resources: dict[str, int]
 
 
+def _preserve_requested_horizons(
+    stability: tuple[HorizonStability, ...], horizons: tuple[int, ...]
+) -> tuple[HorizonStability, ...]:
+    """Return one stability record per requested horizon, failing closed if absent."""
+    by_horizon = {item.horizon: item for item in stability}
+    return tuple(
+        by_horizon.get(
+            horizon,
+            HorizonStability(horizon, 0, 0, None, None, None, None),
+        )
+        for horizon in horizons
+    )
+
+
 def run_research_pipeline(
     warehouse,
     symbol: str,
@@ -53,7 +67,7 @@ def run_research_pipeline(
     )
     folds = walk_forward_splits(dataset, min_train=min_train, test_size=test_size)
     evaluations = evaluate_condition_walk_forward(folds, condition=condition)
-    stability = summarize_stability(evaluations)
+    stability = _preserve_requested_horizons(summarize_stability(evaluations), horizons)
     decisions = tuple(evaluate_evidence(item, policy) for item in stability)
     active_registry = registry if registry is not None else ResearchRegistry()
     candidates = tuple(active_registry.record(hypothesis, decision) for decision in decisions)
