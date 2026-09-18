@@ -148,6 +148,10 @@ class AccountStore:
 def require_admin(account: UserAccount) -> None:
     if account.status is not AccountStatus.ACTIVE or account.role is not Role.ADMIN:
         raise PermissionError("administrator authorization required")
+    if account.must_change_password:
+        raise PermissionError("password change required")
+    if datetime.fromisoformat(account.password_expires_at) <= datetime.now(timezone.utc):
+        raise PermissionError("password change required")
 
 
 
