@@ -4,7 +4,7 @@ import {Badge,EmptyState,SectionHeader} from "./components";
 export type SignalItem={asset:string;evidence_count:number;confirmation_count:number;source_families:string[];state:string;human_review_required:boolean;insider_sale_warning:boolean;reasons:string[]};
 
 const tone=(state:string)=>state==="confirmed_review"?"good":state==="withheld"?"warn":"neutral" as const;
-const label=(state:string)=>state==="confirmed_review"?"confirmed · review":state.replaceAll("_"," ");
+const label=(state:string)=>state==="confirmed_review"?"confirmed · review":state.split("_").join(" ");
 
 export function SignalWatchlist({items,loading,error}:{items:SignalItem[];loading:boolean;error:string}){
  return <section className="filings"><SectionHeader eyebrow="Signal Intelligence" title="Watchlist Confirmation" aside="≥2 independent source families required · human approval always required"/>
