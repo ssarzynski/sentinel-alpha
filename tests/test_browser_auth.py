@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from sentinel_alpha.api import app
 from sentinel_alpha.auth import AccountStatus, AccountStore
+from sentinel_alpha.security_audit import SecurityAuditLog
 
 
 def test_login_sets_hardened_host_cookies(monkeypatch, tmp_path):
@@ -49,3 +50,26 @@ def test_login_failure_is_generic(monkeypatch, tmp_path):
     )
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid username or password."
+
+
+def test_logout_audit_carries_validated_request_id(monkeypatch, tmp_path):
+    db = tmp_path / "browser-request-id.db"
+    monkeypatch.setenv("SENTINEL_DB_PATH", str(db))
+    AccountStore(db).create_user(
+        "trace-member", "member-test-passphrase", status=AccountStatus.ACTIVE
+    )
+    client = TestClient(app, base_url="https://testserver")
+    login = client.post(
+        "/v1/auth/login",
+        json={"username": "trace-member", "password": "member-test-passphrase"},
+    )
+    assert login.status_code == 200
+    csrf = client.cookies.get("__Host-sentinel_csrf")
+    response = client.post(
+        "/v1/auth/logout",
+        headers={"X-CSRF-Token": csrf, "X-Request-ID": "browser-logout-trace-1"},
+    )
+    assert response.status_code == 200
+    events = SecurityAuditLog(db).recent(limit=20)
+    logout = next(event for event in events if event.event_type == "LOGOUT")
+    assert logout.request_id == "browser-logout-trace-1"
