@@ -63,6 +63,29 @@ def _set_auth_cookies(response: Response, token: str, csrf: str) -> None:
     )
 
 
+def security_client_ip(request: Request) -> str | None:
+    """Use forwarded client identity only when the direct peer is explicitly trusted."""
+    peer = request.client.host if request.client else None
+    trusted = {
+        item.strip()
+        for item in os.getenv("SENTINEL_TRUSTED_PROXIES", "").split(",")
+        if item.strip()
+    }
+    if not peer or peer not in trusted:
+        return peer
+    forwarded = request.headers.get("x-forwarded-for")
+    if not forwarded:
+        return peer
+    candidate = forwarded.split(",", 1)[0].strip()
+    if not candidate:
+        return peer
+    try:
+        import ipaddress
+        return str(ipaddress.ip_address(candidate))
+    except ValueError:
+        return peer
+
+
 def require_trusted_origin(request: Request) -> None:
     """Reject cross-origin browser mutations when an Origin header is present.
 
@@ -103,7 +126,7 @@ def require_csrf(
 def login(payload: LoginRequest, request: Request, response: Response) -> dict:
     require_trusted_origin(request)
     auth, sessions = _service()
-    source = request.client.host if request.client else None
+    source = security_client_ip(request)
     result = auth.login(
         payload.username, payload.password, source=source,
         request_id=request.state.request_id,
@@ -221,7 +244,7 @@ def verify_mfa_recovery(
     account = sessions.validate(session_token)
     if account is None or account.role is not Role.ADMIN:
         raise HTTPException(status_code=401, detail="authentication required")
-    source = request.client.host if request.client else None
+    source = security_client_ip(request)
     allowed, retry = _recovery_attempt_allowed(auth, account.user_id, session_token, source)
     if not allowed:
         auth.audit.append("MFA_RECOVERY_RATE_LIMITED", success=False, actor_user_id=account.user_id)
