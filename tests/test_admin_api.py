@@ -3,6 +3,9 @@ from fastapi.testclient import TestClient
 from sentinel_alpha.api import app
 from sentinel_alpha.auth import AccountStatus, AccountStore, Role
 from sentinel_alpha.browser_auth import CSRF_COOKIE, SESSION_COOKIE
+from sentinel_alpha.mfa import AdminMfaStore
+from sentinel_alpha.security_audit import SecurityAuditLog
+import pyotp
 from sentinel_alpha.sessions import SessionStore
 
 
@@ -53,7 +56,12 @@ def test_admin_can_approve_with_cookie_and_csrf(monkeypatch, tmp_path):
     )
     admin = accounts.authenticate("administrator", "administrator-passphrase")
     assert admin is not None
-    token = SessionStore(db).create(admin).token
+    sessions = SessionStore(db)
+    token = sessions.create(admin).token
+    mfa = AdminMfaStore(db, SecurityAuditLog(db))
+    enrollment = mfa.begin_enrollment(admin)
+    assert mfa.confirm_enrollment(admin, pyotp.TOTP(enrollment.secret).now())
+    sessions.mark_mfa_verified(token, admin.user_id)
     user_id = accounts.create_user("pending", "pending-test-passphrase")
     client = TestClient(app, base_url="https://testserver")
     client.cookies.set(SESSION_COOKIE, token)

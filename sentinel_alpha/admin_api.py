@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from .admin_accounts import AdminAccountService
 from .auth import AccountStatus, AccountStore, Role, UserAccount, require_admin
 from .browser_auth import SESSION_COOKIE, require_csrf
+from .mfa import AdminMfaStore
 from .security_audit import SecurityAuditLog
 from .sessions import SessionStore
 
@@ -34,6 +35,10 @@ def authenticated_admin(
     except PermissionError as exc:
         audit.append("ADMIN_ACCESS_DENIED", success=False, actor_user_id=account.user_id)
         raise HTTPException(status_code=403, detail="administrator authorization required") from exc
+    mfa = AdminMfaStore(accounts.database, audit)
+    if not mfa.enabled(account) or not sessions.mfa_verified(token):
+        audit.append("ADMIN_MFA_REQUIRED", success=False, actor_user_id=account.user_id)
+        raise HTTPException(status_code=403, detail="administrator MFA required")
     return account
 
 
