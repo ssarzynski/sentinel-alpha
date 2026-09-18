@@ -46,6 +46,29 @@ def _set_auth_cookies(response: Response, token: str, csrf: str) -> None:
     )
 
 
+def require_trusted_origin(request: Request) -> None:
+    """Reject cross-origin browser mutations when an Origin header is present.
+
+    Production may pin one or more exact origins with SENTINEL_TRUSTED_ORIGINS.
+    Non-browser clients without Origin remain usable; cookie-authenticated state
+    changes still require CSRF everywhere except login.
+    """
+    origin = request.headers.get("origin")
+    if not origin:
+        return
+    configured = {
+        item.strip().rstrip("/")
+        for item in os.getenv("SENTINEL_TRUSTED_ORIGINS", "").split(",")
+        if item.strip()
+    }
+    if configured:
+        trusted = origin.rstrip("/") in configured
+    else:
+        trusted = origin.rstrip("/") == str(request.base_url).rstrip("/")
+    if not trusted:
+        raise HTTPException(status_code=403, detail="untrusted request origin")
+
+
 def require_csrf(
     csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
     csrf_header: str | None = Header(default=None, alias="X-CSRF-Token"),
@@ -58,6 +81,7 @@ def require_csrf(
 
 @router.post("/login")
 def login(payload: LoginRequest, request: Request, response: Response) -> dict:
+    require_trusted_origin(request)
     auth, sessions = _service()
     source = request.client.host if request.client else None
     result = auth.login(
