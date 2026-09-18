@@ -1,10 +1,12 @@
 """FastAPI service boundary for Sentinel Alpha."""
 
 import os
+import re
+import uuid
 from datetime import datetime
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
@@ -21,6 +23,17 @@ from .risk_gate import TradeProposal
 from .security_headers import SecurityHeadersMiddleware
 
 app = FastAPI(title="Sentinel Alpha", version="0.1.0")
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    supplied = request.headers.get("X-Request-ID")
+    request_id = supplied if supplied and _REQUEST_ID_RE.fullmatch(supplied) else str(uuid.uuid4())
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
 app.add_middleware(SecurityHeadersMiddleware)
 app.include_router(admin_router)
 app.include_router(browser_auth_router)
