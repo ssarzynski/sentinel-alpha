@@ -38,7 +38,7 @@ def test_admin_authorization_requires_active_admin(tmp_path):
     store = AccountStore(tmp_path / "auth.db")
     store.create_user(
         "administrator", "long-test-passphrase",
-        role=Role.ADMIN, status=AccountStatus.ACTIVE, must_change_password=True,
+        role=Role.ADMIN, status=AccountStatus.ACTIVE, must_change_password=False,
     )
     account = store.authenticate("administrator", "long-test-passphrase")
     assert account is not None
