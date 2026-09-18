@@ -271,3 +271,19 @@ def revoke_user_sessions(
     sessions.revoke_all(user_id)
     audit.append("SESSIONS_REVOKED", success=True, actor_user_id=actor.user_id, target_user_id=user_id)
     return {"user_id": user_id, "sessions_revoked": True}
+
+@router.post("/users/{user_id}/require-password-change")
+def require_password_change(
+    user_id: int,
+    actor: UserAccount = Depends(authenticated_admin),
+    _: None = Depends(require_csrf),
+) -> dict:
+    accounts, sessions, audit = _stores()
+    service = AdminAccountService(accounts, sessions)
+    try:
+        service.require_password_change(actor, user_id)
+    except (ValueError, LookupError) as exc:
+        audit.append("PASSWORD_RESET_REQUIRED", success=False, actor_user_id=actor.user_id, target_user_id=user_id)
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    audit.append("PASSWORD_RESET_REQUIRED", success=True, actor_user_id=actor.user_id, target_user_id=user_id)
+    return {"user_id": user_id, "must_change_password": True, "sessions_revoked": True}
