@@ -60,5 +60,5 @@ def test_disabled_account_invalidates_existing_session(tmp_path):
     sessions = SessionStore(db)
     session = sessions.create(account)
     assert sessions.validate(session.token) is not None
-    accounts.set_status(user_id, AccountStatus.DISABLED)
+    with accounts._connect() as connection:\n        connection.execute("UPDATE users SET status=? WHERE id=?", (AccountStatus.DISABLED.value, user_id))
     assert sessions.validate(session.token) is None
