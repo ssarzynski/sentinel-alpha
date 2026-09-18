@@ -11,32 +11,27 @@ from sentinel_alpha.database import Base
 
 class MarketAsset(Base):
     __tablename__ = "market_assets"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     symbol: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)
     asset_type: Mapped[str] = mapped_column(String(32), nullable=False)
     name: Mapped[str | None] = mapped_column(String(255))
     currency: Mapped[str] = mapped_column(String(8), nullable=False, default="USD")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
     observations: Mapped[list["MarketObservation"]] = relationship(back_populates="asset")
 
 
 class MarketSource(Base):
     __tablename__ = "market_sources"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     provider: Mapped[str] = mapped_column(String(64), nullable=False)
     source_family: Mapped[str] = mapped_column(String(64), nullable=False)
     channel: Mapped[str] = mapped_column(String(64), nullable=False, default="market")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
     __table_args__ = (UniqueConstraint("provider", "source_family", "channel", name="uq_market_source_identity"),)
 
 
 class MarketObservation(Base):
     __tablename__ = "market_observations"
-
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     asset_id: Mapped[int] = mapped_column(ForeignKey("market_assets.id", ondelete="RESTRICT"), nullable=False)
     source_id: Mapped[int] = mapped_column(ForeignKey("market_sources.id", ondelete="RESTRICT"), nullable=False)
@@ -47,12 +42,31 @@ class MarketObservation(Base):
     quality_status: Mapped[str] = mapped_column(String(32), nullable=False, default="accepted")
     source_url: Mapped[str | None] = mapped_column(String(2048))
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
-
     asset: Mapped[MarketAsset] = relationship(back_populates="observations")
     source: Mapped[MarketSource] = relationship()
-
     __table_args__ = (
         UniqueConstraint("source_id", "source_record_id", name="uq_market_observation_provider_record"),
         Index("ix_market_observation_asset_time", "asset_id", "observed_at"),
         Index("ix_market_observation_ingested_time", "ingested_at"),
+    )
+
+
+class MarketBackfillRun(Base):
+    """Durable progress for a provider/symbol/channel historical import."""
+    __tablename__ = "market_backfill_runs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
+    channel: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(24), nullable=False)
+    checkpoint_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    processed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    inserted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    existing: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    error_message: Mapped[str | None] = mapped_column(String(1000))
+    __table_args__ = (
+        UniqueConstraint("provider", "symbol", "channel", name="uq_market_backfill_stream"),
+        Index("ix_market_backfill_status", "status"),
     )
