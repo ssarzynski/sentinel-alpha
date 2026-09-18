@@ -55,3 +55,40 @@ def test_disabled_account_invalidates_existing_session(tmp_path):
     with accounts._connect() as connection:
         connection.execute("UPDATE users SET status='DISABLED' WHERE id=?", (user_id,))
     assert sessions.validate(session.token) is None
+
+
+def test_compromised_password_lookup_uses_only_sha1_prefix(monkeypatch):
+    import io
+    import hashlib
+    from sentinel_alpha.sessions import compromised_password_count
+
+    password = "known-compromised-test-passphrase"
+    digest = hashlib.sha1(password.encode("utf-8"), usedforsecurity=False).hexdigest().upper()
+    seen = {}
+
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): return None
+        def read(self): return f"{digest[5:]}:42\r\nDEADBEEF:0\r\n".encode()
+
+    def fake_open(request, timeout):
+        seen["url"] = request.full_url
+        seen["padding"] = request.get_header("Add-padding")
+        return Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_open)
+    assert compromised_password_count(password) == 42
+    assert password not in seen["url"]
+    assert digest not in seen["url"]
+    assert seen["url"].endswith(digest[:5])
+    assert seen["padding"] == "true"
+
+
+def test_compromised_password_lookup_fails_open_when_service_unavailable(monkeypatch):
+    from sentinel_alpha.sessions import compromised_password_count
+
+    def unavailable(*args, **kwargs):
+        raise OSError("offline")
+
+    monkeypatch.setattr("urllib.request.urlopen", unavailable)
+    assert compromised_password_count("offline-safe-test-passphrase") is None
