@@ -3,7 +3,7 @@
 import os
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from .admin_accounts import AdminAccountService
@@ -72,7 +72,7 @@ def pending(actor: UserAccount = Depends(authenticated_admin)) -> list[dict]:
     ]
 
 
-def _status_action(actor: UserAccount, user_id: int, status: AccountStatus, event: str) -> dict:
+def _status_action(actor: UserAccount, user_id: int, status: AccountStatus, event: str, request_id: str | None = None) -> dict:
     accounts, sessions, audit = _stores()
     service = AdminAccountService(accounts, sessions)
     try:
@@ -101,11 +101,11 @@ def _status_action(actor: UserAccount, user_id: int, status: AccountStatus, even
                         raise ValueError("cannot disable or lock the last active administrator")
             now = datetime.now(timezone.utc).isoformat()
             connection.execute("UPDATE users SET status=?,updated_at=? WHERE id=?", (status.value, now, user_id))
-            audit.append_in_connection(connection, event, success=True, actor_user_id=actor.user_id, target_user_id=user_id)
+            audit.append_in_connection(connection, event, success=True, actor_user_id=actor.user_id, target_user_id=user_id, request_id=request_id)
         if status is not AccountStatus.ACTIVE:
             sessions.revoke_all(user_id)
     except (ValueError, LookupError) as exc:
-        audit.append(event, success=False, actor_user_id=actor.user_id, target_user_id=user_id)
+        audit.append(event, success=False, actor_user_id=actor.user_id, target_user_id=user_id, request_id=request_id)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"user_id": user_id, "status": status}
 
@@ -113,37 +113,41 @@ def _status_action(actor: UserAccount, user_id: int, status: AccountStatus, even
 @router.post("/users/{user_id}/approve")
 def approve(
     user_id: int,
+    request: Request,
     actor: UserAccount = Depends(authenticated_admin),
     _: None = Depends(require_csrf),
 ) -> dict:
-    return _status_action(actor, user_id, AccountStatus.ACTIVE, "ACCOUNT_APPROVED")
+    return _status_action(actor, user_id, AccountStatus.ACTIVE, "ACCOUNT_APPROVED", request.state.request_id)
 
 
 @router.post("/users/{user_id}/reject")
 def reject(
     user_id: int,
+    request: Request,
     actor: UserAccount = Depends(authenticated_admin),
     _: None = Depends(require_csrf),
 ) -> dict:
-    return _status_action(actor, user_id, AccountStatus.REJECTED, "ACCOUNT_REJECTED")
+    return _status_action(actor, user_id, AccountStatus.REJECTED, "ACCOUNT_REJECTED", request.state.request_id)
 
 
 @router.post("/users/{user_id}/disable")
 def disable(
     user_id: int,
+    request: Request,
     actor: UserAccount = Depends(authenticated_admin),
     _: None = Depends(require_csrf),
 ) -> dict:
-    return _status_action(actor, user_id, AccountStatus.DISABLED, "ACCOUNT_DISABLED")
+    return _status_action(actor, user_id, AccountStatus.DISABLED, "ACCOUNT_DISABLED", request.state.request_id)
 
 
 @router.post("/users/{user_id}/lock")
 def lock(
     user_id: int,
+    request: Request,
     actor: UserAccount = Depends(authenticated_admin),
     _: None = Depends(require_csrf),
 ) -> dict:
-    return _status_action(actor, user_id, AccountStatus.LOCKED, "ACCOUNT_LOCKED")
+    return _status_action(actor, user_id, AccountStatus.LOCKED, "ACCOUNT_LOCKED", request.state.request_id)
 
 
 @router.post("/users/{user_id}/role")
