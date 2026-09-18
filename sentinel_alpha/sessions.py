@@ -1,13 +1,42 @@
 """Server-managed authentication sessions with restricted password-change state."""
 
 import hashlib
+import os
 import secrets
+import urllib.error
+import urllib.request
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .auth import AccountStatus, AccountStore, Role, UserAccount, hash_password, verify_password
+
+
+def compromised_password_count(password: str) -> int | None:
+    """Return HIBP prevalence count using k-anonymity, or None when unavailable."""
+    if os.getenv("SENTINEL_PWNED_PASSWORDS_CHECK", "enabled").casefold() != "enabled":
+        return None
+    digest = hashlib.sha1(password.encode("utf-8"), usedforsecurity=False).hexdigest().upper()
+    prefix, suffix = digest[:5], digest[5:]
+    request = urllib.request.Request(
+        f"https://api.pwnedpasswords.com/range/{prefix}",
+        headers={"User-Agent": "Sentinel-Alpha/0.1", "Add-Padding": "true"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=3) as response:
+            body = response.read().decode("utf-8")
+    except (OSError, urllib.error.URLError, UnicodeError):
+        return None
+    for line in body.splitlines():
+        candidate, _, count = line.partition(":")
+        if candidate.upper() == suffix:
+            try:
+                return int(count)
+            except ValueError:
+                return None
+    return 0
+
 
 
 @dataclass(frozen=True)
@@ -168,6 +197,9 @@ def change_password(
             verify_password(new_password, previous) for previous in previous_hashes
         ):
             raise ValueError("new password was recently used")
+        compromised_count = compromised_password_count(new_password)
+        if compromised_count is not None and compromised_count > 0:
+            raise ValueError("new password is known to be compromised")
         days = connection.execute(
             "SELECT expiration_days FROM password_policy WHERE id=1"
         ).fetchone()[0]
