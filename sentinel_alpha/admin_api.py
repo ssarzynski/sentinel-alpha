@@ -154,6 +154,7 @@ def lock(
 def change_role(
     user_id: int,
     request: RoleChange,
+    http_request: Request,
     actor: UserAccount = Depends(authenticated_admin),
     _: None = Depends(require_csrf),
 ) -> dict:
@@ -174,10 +175,10 @@ def change_role(
                 if remaining == 0:
                     raise ValueError("cannot demote the last active administrator")
             connection.execute("UPDATE users SET role=?,updated_at=? WHERE id=?", (request.role.value, datetime.now(timezone.utc).isoformat(), user_id))
-            audit.append_in_connection(connection, "ROLE_CHANGED", success=True, actor_user_id=actor.user_id, target_user_id=user_id, metadata={"role": request.role.value})
+            audit.append_in_connection(connection, "ROLE_CHANGED", success=True, actor_user_id=actor.user_id, target_user_id=user_id, request_id=http_request.state.request_id, metadata={"role": request.role.value})
         sessions.revoke_all(user_id)
     except (ValueError, LookupError) as exc:
-        audit.append("ROLE_CHANGED", success=False, actor_user_id=actor.user_id, target_user_id=user_id)
+        audit.append("ROLE_CHANGED", success=False, actor_user_id=actor.user_id, target_user_id=user_id, request_id=http_request.state.request_id)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"user_id": user_id, "role": request.role}
 
@@ -255,6 +256,7 @@ def password_policy(actor: UserAccount = Depends(authenticated_admin)) -> dict:
 @router.put("/password-policy")
 def update_password_policy(
     request: PasswordPolicyChange,
+    http_request: Request,
     actor: UserAccount = Depends(authenticated_admin),
     _: None = Depends(require_csrf),
 ) -> dict:
@@ -270,7 +272,7 @@ def update_password_policy(
         )
         audit.append_in_connection(
             connection, "PASSWORD_POLICY_CHANGED", success=True, actor_user_id=actor.user_id,
-            metadata={"expiration_days": str(request.expiration_days)},
+            request_id=http_request.state.request_id, metadata={"expiration_days": str(request.expiration_days)},
         )
     return {
         "expiration_days": request.expiration_days,
@@ -295,6 +297,7 @@ def user_sessions(
 @router.post("/users/{user_id}/sessions/revoke")
 def revoke_user_sessions(
     user_id: int,
+    request: Request,
     actor: UserAccount = Depends(authenticated_admin),
     _: None = Depends(require_csrf),
 ) -> dict:
@@ -310,13 +313,14 @@ def revoke_user_sessions(
         audit.append_in_connection(
             connection, "SESSIONS_REVOKED", success=True,
             actor_user_id=actor.user_id, target_user_id=user_id,
-            metadata={"revoked_count": str(revoked_count)},
+            request_id=request.state.request_id, metadata={"revoked_count": str(revoked_count)},
         )
     return {"user_id": user_id, "sessions_revoked": True, "revoked_count": revoked_count}
 
 @router.post("/users/{user_id}/require-password-change")
 def require_password_change(
     user_id: int,
+    request: Request,
     actor: UserAccount = Depends(authenticated_admin),
     _: None = Depends(require_csrf),
 ) -> dict:
@@ -332,9 +336,9 @@ def require_password_change(
             if row["status"] != AccountStatus.ACTIVE.value:
                 raise ValueError("password change can only be required for an active account")
             connection.execute("UPDATE users SET must_change_password=1,updated_at=? WHERE id=?", (datetime.now(timezone.utc).isoformat(), user_id))
-            audit.append_in_connection(connection, "PASSWORD_RESET_REQUIRED", success=True, actor_user_id=actor.user_id, target_user_id=user_id)
+            audit.append_in_connection(connection, "PASSWORD_RESET_REQUIRED", success=True, actor_user_id=actor.user_id, target_user_id=user_id, request_id=request.state.request_id)
         sessions.revoke_all(user_id)
     except (ValueError, LookupError) as exc:
-        audit.append("PASSWORD_RESET_REQUIRED", success=False, actor_user_id=actor.user_id, target_user_id=user_id)
+        audit.append("PASSWORD_RESET_REQUIRED", success=False, actor_user_id=actor.user_id, target_user_id=user_id, request_id=request.state.request_id)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"user_id": user_id, "must_change_password": True, "sessions_revoked": True}
