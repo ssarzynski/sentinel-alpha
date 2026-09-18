@@ -26,9 +26,20 @@ This runbook documents the Milestone 7 market-provenance, signal-gating, and SEC
 - Failed SEC document retrieval/parsing must never fabricate transaction evidence.
 - Evidence is append-only/idempotent through deterministic evidence keys.
 
+## SEC ingestion observability
+Search application/worker logs for `sec_ingestion`. The stable lifecycle events are:
+- `event=sync_started`: ticker, CIK, number of filings returned by SEC.
+- `event=filing_created`: new filing metadata persisted; includes ticker, form, accession.
+- `event=filing_existing`: duplicate/idempotent filing path; includes ticker, form, accession.
+- `event=form4_parsed`: Form 4 document parsed; includes accession, transaction count and newly created transaction-evidence count.
+- `event=form4_failed`: fail-closed document/parse path; includes ticker, accession, `stage=form4_document`, exception type and bounded error message.
+- `event=sync_completed`: aggregate created/existing/evidence/transaction/failure counts.
+
+Start with `sync_completed` for the affected ticker, then trace the accession through `filing_created|filing_existing` and `form4_parsed|form4_failed`. Logs intentionally exclude SEC document bodies and secrets.
+
 ## Failure tracing
 ### SEC metadata exists but no transaction evidence
-Inspect `sync_company_filings()` result `form4_failures`. Match `accession_number`, then check stage `form4_document`. Common causes: HTTP error, invalid primary-document name, document > configured size, non-UTF-8 response, non-ownership XML, or parser rejection.
+Inspect `sync_company_filings()` result `form4_failures` and logs for `event=form4_failed`. Match `accession_number`/`accession`, then check stage `form4_document`. Common causes: HTTP error, invalid primary-document name, document > configured size, non-UTF-8 response, non-ownership XML, or parser rejection.
 
 ### Insider sale expected but warning absent
 Inspect transaction evidence payload: `form`, `transaction_code`, `transaction_direction`, `economic_type`, `signal_eligible`, `is_derivative`, and `classification_reasons`. A valid warning requires Form 4 + signal eligible + `open_market_sale` + `sell`.
@@ -43,7 +54,7 @@ Inspect Decision Ledger `risk_data_status`. `withheld:data_quality:withhold` mea
 When adding new ingestion/signal components, preserve stable IDs, source family, source URL, source record/accession ID, observed timestamp, normalized classification, gate status/reasons, and human-review state. Errors should include a machine-readable stage/code plus a bounded message; do not store secrets or full uncontrolled remote responses.
 
 ## Testing expectations
-Every change to this path should test: success, idempotency/duplicate ingestion, malformed input, upstream HTTP failure, classification edge cases, source-family deduplication, stale/unconfirmed market data, and fail-closed behavior. CI must pass backend tests, frontend build, migrations, Docker/Compose startup/health, worker checks, and teardown before advancing.
+Every change to this path should test: success, idempotency/duplicate ingestion, malformed input, upstream HTTP failure, classification edge cases, source-family deduplication, stale/unconfirmed market data, fail-closed behavior, and observable lifecycle/failure events. CI must pass backend tests, frontend build, migrations, Docker/Compose startup/health, worker checks, and teardown before advancing.
 
 ## Maintenance rule
-Update this runbook and nearby function/module docstrings whenever an invariant, stage name, payload field, or failure behavior changes. Prefer explicit reason codes over prose-only failures so future logs and dashboards remain searchable.
+Update this runbook and nearby function/module docstrings whenever an invariant, stage name, event name, payload field, or failure behavior changes. Prefer explicit reason/event codes over prose-only failures so future logs and dashboards remain searchable.
