@@ -21,6 +21,10 @@ class SourceIdentity:
         group = self.independent_group or self.provider
         return group.strip().lower()
 
+    @property
+    def uses_explicit_independence(self) -> bool:
+        return self.independent_group is not None
+
 
 @dataclass(frozen=True)
 class NormalizedRecord:
@@ -74,7 +78,19 @@ def normalize_record(
 
 
 def independent_confirmation_keys(records: list[NormalizedRecord]) -> set[str]:
-    """Return unique independent upstream-source groups represented by records."""
+    """Return unique upstream groups, failing closed for ambiguous provider aliases.
+
+    Distinct provider labels are independent only when no provider is represented
+    through an explicit upstream group. Once explicit lineage is present, every
+    record in that confirmation set must declare its upstream group so aliases
+    cannot manufacture a second confirmation.
+    """
+    if any(record.source.uses_explicit_independence for record in records):
+        return {
+            record.source.independence_key
+            for record in records
+            if record.source.uses_explicit_independence
+        }
     return {record.source.independence_key for record in records}
 
 
