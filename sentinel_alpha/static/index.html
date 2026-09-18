@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sentinel Alpha</title><link rel="stylesheet" href="/ui/app.css"></head>
+<body><div class="app">
+<aside><div class="brand">Sentinel <strong>Alpha</strong></div><nav aria-label="Primary">
+<a class="active" href="#dashboard">Dashboard</a><a href="#signals">Signals</a><a href="#evidence">Evidence</a><a href="#paper">Paper Decisions</a><a href="#approvals">Approvals</a><a href="#users">Users</a><a href="#security">Security</a>
+</nav><div class="guardrail">Execution disabled<br><small>Human approval required</small></div></aside>
+<main><header><div><p class="eyebrow">MARKET INTELLIGENCE</p><h1>Dashboard</h1><p>See what needs attention without digging through raw data.</p></div><div id="health" class="status">Checking system…</div></header>
+<section class="cards" aria-label="System summary">
+<article><span>Evaluations</span><strong id="evaluations">—</strong><small>Recent evidence reviews</small></article>
+<article><span>Strong alerts</span><strong id="alerts">—</strong><small>Require 2+ independent confirmations</small></article>
+<article><span>Blocked</span><strong id="blocked">—</strong><small>Stopped by risk rules</small></article>
+<article><span>Paper decisions</span><strong id="paperCount">—</strong><small>No live execution</small></article>
+</section>
+<section class="panel"><div><h2>Safety status</h2><p>Sentinel Alpha is decision support. Financial actions always require your approval.</p></div><div class="badges"><span>✓ No leverage</span><span>✓ No options</span><span>✓ Auto-trading off</span><span>✓ Human approval</span></div></section>
+<section class="panel"><div><h2>What needs attention</h2><p id="attention">Loading current status…</p></div><button type="button" id="refresh">Refresh dashboard</button></section>
+</main></div><script src="/ui/app.js" defer></script></body></html>

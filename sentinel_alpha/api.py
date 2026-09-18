@@ -5,6 +5,9 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 from pydantic import BaseModel, Field
 
 from .admin_api import router as admin_router
@@ -21,6 +24,12 @@ app = FastAPI(title="Sentinel Alpha", version="0.1.0")
 app.add_middleware(SecurityHeadersMiddleware)
 app.include_router(admin_router)
 app.include_router(browser_auth_router)
+STATIC_DIR = Path(__file__).parent / "static"
+app.mount("/ui", StaticFiles(directory=STATIC_DIR), name="ui")
+
+@app.get("/", include_in_schema=False)
+def user_interface():
+    return FileResponse(STATIC_DIR / "index.html")
 
 
 def get_journal() -> EvaluationJournal:
