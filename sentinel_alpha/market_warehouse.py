@@ -1,17 +1,22 @@
 """Controlled read/write boundary for canonical market observations.
 
-The service owns normalization, idempotent ingestion, and point-in-time reads.
-It deliberately contains no prediction, scoring, portfolio, or trading logic.
+The service owns normalization, idempotent ingestion, point-in-time reads, and
+optional zero-persistence resource accounting. It deliberately contains no
+prediction, scoring, portfolio, or trading logic.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from sentinel_alpha.market_models import MarketAsset, MarketObservation, MarketSource
+
+if TYPE_CHECKING:
+    from sentinel_alpha.resource_metrics import ResourceMetrics
 
 
 @dataclass(frozen=True)
@@ -35,11 +40,12 @@ class ObservationInput:
 class MarketWarehouse:
     """Application boundary around the canonical market warehouse."""
 
-    def __init__(self, session: Session):
+    def __init__(self, session: Session, *, metrics: "ResourceMetrics | None" = None):
         self.session = session
+        self.metrics = metrics
 
     def ingest(self, item: ObservationInput) -> tuple[MarketObservation, bool]:
-        """Insert once by provider record identity; return (row, created)."""
+        """Insert once by provider identity and meter only newly stored payload."""
         source = self._source(item)
         existing = self.session.scalar(
             select(MarketObservation).where(
@@ -64,6 +70,11 @@ class MarketWarehouse:
         )
         self.session.add(observation)
         self.session.flush()
+        if self.metrics is not None:
+            # Local import prevents a warehouse/accounting import cycle.
+            from sentinel_alpha.storage_accounting import canonical_observation_bytes
+
+            self.metrics.record_canonical_bytes(canonical_observation_bytes(item))
         return observation, True
 
     def history(
@@ -75,10 +86,8 @@ class MarketWarehouse:
         observed_to: datetime | None = None,
     ) -> list[MarketObservation]:
         """Read chronologically, optionally restricting data to what was known by a time."""
-        stmt = (
-            select(MarketObservation)
-            .join(MarketAsset)
-            .where(MarketAsset.symbol == self._normalize_symbol(symbol))
+        stmt = select(MarketObservation).join(MarketAsset).where(
+            MarketAsset.symbol == self._normalize_symbol(symbol)
         )
         if known_by is not None:
             stmt = stmt.where(MarketObservation.ingested_at <= known_by)
