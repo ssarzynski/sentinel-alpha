@@ -1,6 +1,7 @@
 """Protected HTTP administrator API for Sentinel Alpha."""
 
 import os
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Cookie, Depends, HTTPException
 from pydantic import BaseModel
@@ -141,16 +142,27 @@ def change_role(
     _: None = Depends(require_csrf),
 ) -> dict:
     accounts, sessions, audit = _stores()
-    service = AdminAccountService(accounts, sessions)
+    if actor.user_id == user_id and request.role is not Role.ADMIN:
+        raise HTTPException(status_code=409, detail="administrator cannot remove own administrator role")
     try:
-        service.set_role(actor, user_id, request.role)
+        with accounts._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT role,status FROM users WHERE id=?", (user_id,)).fetchone()
+            if row is None:
+                raise LookupError("target user not found")
+            if row["role"] == Role.ADMIN.value and row["status"] == AccountStatus.ACTIVE.value and request.role is not Role.ADMIN:
+                remaining = connection.execute(
+                    "SELECT COUNT(*) AS count FROM users WHERE role=? AND status=? AND id<>?",
+                    (Role.ADMIN.value, AccountStatus.ACTIVE.value, user_id),
+                ).fetchone()["count"]
+                if remaining == 0:
+                    raise ValueError("cannot demote the last active administrator")
+            connection.execute("UPDATE users SET role=?,updated_at=? WHERE id=?", (request.role.value, datetime.now(timezone.utc).isoformat(), user_id))
+            audit.append_in_connection(connection, "ROLE_CHANGED", success=True, actor_user_id=actor.user_id, target_user_id=user_id, metadata={"role": request.role.value})
+        sessions.revoke_all(user_id)
     except (ValueError, LookupError) as exc:
         audit.append("ROLE_CHANGED", success=False, actor_user_id=actor.user_id, target_user_id=user_id)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    audit.append(
-        "ROLE_CHANGED", success=True, actor_user_id=actor.user_id,
-        target_user_id=user_id, metadata={"role": request.role.value},
-    )
     return {"user_id": user_id, "role": request.role}
 
 
@@ -233,17 +245,17 @@ def update_password_policy(
     if request.expiration_days not in {30, 60, 90}:
         raise HTTPException(status_code=422, detail="expiration_days must be 30, 60, or 90")
     accounts, sessions, audit = _stores()
-    from datetime import datetime, timezone
     now = datetime.now(timezone.utc).isoformat()
     with accounts._connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
         connection.execute(
             """UPDATE password_policy SET expiration_days=?,updated_at=?,updated_by=? WHERE id=1""",
             (request.expiration_days, now, actor.user_id),
         )
-    audit.append(
-        "PASSWORD_POLICY_CHANGED", success=True, actor_user_id=actor.user_id,
-        metadata={"expiration_days": str(request.expiration_days)},
-    )
+        audit.append_in_connection(
+            connection, "PASSWORD_POLICY_CHANGED", success=True, actor_user_id=actor.user_id,
+            metadata={"expiration_days": str(request.expiration_days)},
+        )
     return {
         "expiration_days": request.expiration_days,
         "allowed_expiration_days": [30, 60, 90],
@@ -288,11 +300,20 @@ def require_password_change(
     _: None = Depends(require_csrf),
 ) -> dict:
     accounts, sessions, audit = _stores()
-    service = AdminAccountService(accounts, sessions)
+    if actor.user_id == user_id:
+        raise HTTPException(status_code=409, detail="administrator must change own password through the password-change flow")
     try:
-        service.require_password_change(actor, user_id)
+        with accounts._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT status FROM users WHERE id=?", (user_id,)).fetchone()
+            if row is None:
+                raise LookupError("target user not found")
+            if row["status"] != AccountStatus.ACTIVE.value:
+                raise ValueError("password change can only be required for an active account")
+            connection.execute("UPDATE users SET must_change_password=1,updated_at=? WHERE id=?", (datetime.now(timezone.utc).isoformat(), user_id))
+            audit.append_in_connection(connection, "PASSWORD_RESET_REQUIRED", success=True, actor_user_id=actor.user_id, target_user_id=user_id)
+        sessions.revoke_all(user_id)
     except (ValueError, LookupError) as exc:
         audit.append("PASSWORD_RESET_REQUIRED", success=False, actor_user_id=actor.user_id, target_user_id=user_id)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    audit.append("PASSWORD_RESET_REQUIRED", success=True, actor_user_id=actor.user_id, target_user_id=user_id)
     return {"user_id": user_id, "must_change_password": True, "sessions_revoked": True}
