@@ -4,11 +4,15 @@ from sentinel_alpha.auth import AccountStatus, AccountStore, Role
 from sentinel_alpha.sessions import SessionStore
 
 
-def _active_account(db):
+def _active_account(db, username="session-adversary"):
     accounts = AccountStore(db)
-    user_id = accounts.create_user("session-adversary", "Correct-Horse-Battery-99", role=Role.ADMIN)
-    accounts.set_status(user_id, AccountStatus.ACTIVE)
-    return accounts.get_user(user_id)
+    accounts.create_user(
+        username, "Correct-Horse-Battery-99",
+        role=Role.ADMIN, status=AccountStatus.ACTIVE,
+    )
+    account = accounts.authenticate(username, "Correct-Horse-Battery-99")
+    assert account is not None
+    return account
 
 
 def test_revoked_session_is_rejected_and_cannot_revalidate(tmp_path):
@@ -58,7 +62,7 @@ def test_disabled_account_invalidates_existing_session(tmp_path):
         "disabled-session", "Correct-Horse-Battery-99",
         role=Role.ADMIN, status=AccountStatus.ACTIVE,
     )
-    account = accounts.get_user(user_id)
+    account = accounts.authenticate("disabled-session", "Correct-Horse-Battery-99")\n    assert account is not None
     sessions = SessionStore(db)
     session = sessions.create(account)
     assert sessions.validate(session.token) is not None
