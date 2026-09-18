@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pyotp
+from cryptography.fernet import Fernet, InvalidToken
 
 from .auth import Role, UserAccount
 from .security_audit import SecurityAuditLog
@@ -21,6 +22,13 @@ class AdminMfaStore:
     def __init__(self, database: str | Path, audit: SecurityAuditLog) -> None:
         self.database = str(database)
         self.audit = audit
+        key = os.getenv("SENTINEL_MFA_ENCRYPTION_KEY")
+        if not key:
+            raise RuntimeError("SENTINEL_MFA_ENCRYPTION_KEY is required for administrator MFA")
+        try:
+            self.cipher = Fernet(key.encode())
+        except (ValueError, TypeError) as exc:
+            raise RuntimeError("SENTINEL_MFA_ENCRYPTION_KEY is invalid") from exc
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
@@ -46,7 +54,7 @@ class AdminMfaStore:
             connection.execute(
                 """INSERT INTO admin_mfa(user_id,totp_secret,enabled) VALUES(?,?,0)
                 ON CONFLICT(user_id) DO UPDATE SET totp_secret=excluded.totp_secret,enabled=0""",
-                (account.user_id, secret),
+                (account.user_id, self.cipher.encrypt(secret.encode()).decode()),
             )
         issuer = os.getenv("SENTINEL_MFA_ISSUER", "Sentinel Alpha")
         return MfaEnrollment(secret, pyotp.TOTP(secret).provisioning_uri(account.username, issuer))
@@ -56,7 +64,15 @@ class AdminMfaStore:
             row = connection.execute(
                 "SELECT totp_secret FROM admin_mfa WHERE user_id=?", (account.user_id,)
             ).fetchone()
-            if row is None or not pyotp.TOTP(row["totp_secret"]).verify(code, valid_window=1):
+            if row is None:
+                self.audit.append("MFA_ENROLLMENT_FAILED", success=False, actor_user_id=account.user_id)
+                return False
+            try:
+                secret = self.cipher.decrypt(row["totp_secret"].encode()).decode()
+            except InvalidToken:
+                self.audit.append("MFA_SECRET_DECRYPT_FAILED", success=False, actor_user_id=account.user_id)
+                return False
+            if not pyotp.TOTP(secret).verify(code, valid_window=1):
                 self.audit.append("MFA_ENROLLMENT_FAILED", success=False, actor_user_id=account.user_id)
                 return False
             connection.execute("UPDATE admin_mfa SET enabled=1 WHERE user_id=?", (account.user_id,))
@@ -72,7 +88,12 @@ class AdminMfaStore:
             ).fetchone()
         if row is None or not row["enabled"]:
             return False
-        valid = pyotp.TOTP(row["totp_secret"]).verify(code, valid_window=1)
+        try:
+            secret = self.cipher.decrypt(row["totp_secret"].encode()).decode()
+        except InvalidToken:
+            self.audit.append("MFA_SECRET_DECRYPT_FAILED", success=False, actor_user_id=account.user_id)
+            return False
+        valid = pyotp.TOTP(secret).verify(code, valid_window=1)
         self.audit.append(
             "MFA_CHALLENGE", success=valid, actor_user_id=account.user_id,
             metadata={"factor": "totp"},
