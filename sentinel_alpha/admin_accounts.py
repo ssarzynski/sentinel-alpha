@@ -41,6 +41,16 @@ class AdminAccountService:
         require_admin(actor)
         if actor.user_id == target_user_id and status is not AccountStatus.ACTIVE:
             raise ValueError("administrator cannot deactivate own active session account")
+        if status is not AccountStatus.ACTIVE:
+            with self.accounts._connect() as connection:
+                target = connection.execute("SELECT role,status FROM users WHERE id=?", (target_user_id,)).fetchone()
+                if target is not None and target["role"] == Role.ADMIN.value and target["status"] == AccountStatus.ACTIVE.value:
+                    remaining = connection.execute(
+                        "SELECT COUNT(*) AS count FROM users WHERE role=? AND status=? AND id<>?",
+                        (Role.ADMIN.value, AccountStatus.ACTIVE.value, target_user_id),
+                    ).fetchone()["count"]
+                    if remaining == 0:
+                        raise ValueError("cannot deactivate the last active administrator")
         allowed = {
             AccountStatus.ACTIVE,
             AccountStatus.DISABLED,
@@ -85,6 +95,16 @@ class AdminAccountService:
         require_admin(actor)
         if actor.user_id == target_user_id and role is not Role.ADMIN:
             raise ValueError("administrator cannot remove own administrator role")
+        if role is not Role.ADMIN:
+            with self.accounts._connect() as connection:
+                target = connection.execute("SELECT role,status FROM users WHERE id=?", (target_user_id,)).fetchone()
+                if target is not None and target["role"] == Role.ADMIN.value and target["status"] == AccountStatus.ACTIVE.value:
+                    remaining = connection.execute(
+                        "SELECT COUNT(*) AS count FROM users WHERE role=? AND status=? AND id<>?",
+                        (Role.ADMIN.value, AccountStatus.ACTIVE.value, target_user_id),
+                    ).fetchone()["count"]
+                    if remaining == 0:
+                        raise ValueError("cannot demote the last active administrator")
         now = datetime.now(timezone.utc).isoformat()
         with self.accounts._connect() as connection:
             row = connection.execute("SELECT id FROM users WHERE id=?", (target_user_id,)).fetchone()
