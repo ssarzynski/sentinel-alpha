@@ -149,6 +149,7 @@ def login(payload: LoginRequest, request: Request, response: Response) -> dict:
 
 @router.post("/logout")
 def logout(
+    request: Request,
     response: Response,
     session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE),
     csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
@@ -308,6 +309,7 @@ def verify_mfa(
 @router.post("/password")
 def update_password(
     payload: PasswordChangeRequest,
+    request: Request,
     response: Response,
     session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE),
     csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
