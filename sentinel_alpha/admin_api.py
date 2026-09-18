@@ -6,6 +6,7 @@ from fastapi import APIRouter, Cookie, Depends, HTTPException
 from pydantic import BaseModel
 
 from .admin_accounts import AdminAccountService
+from .admin_dashboard import AdminDashboardService
 from .auth import AccountStatus, AccountStore, Role, UserAccount, require_admin
 from .browser_auth import SESSION_COOKIE, require_csrf
 from .mfa import AdminMfaStore
@@ -138,3 +139,21 @@ def change_role(
         target_user_id=user_id, metadata={"role": request.role.value},
     )
     return {"user_id": user_id, "role": request.role}
+
+
+@router.get("/dashboard")
+def dashboard(actor: UserAccount = Depends(authenticated_admin)) -> dict:
+    accounts, sessions, audit = _stores()
+    return AdminDashboardService(accounts, sessions, audit).summary(actor)
+
+
+@router.get("/security-events")
+def security_events(
+    limit: int = 50,
+    actor: UserAccount = Depends(authenticated_admin),
+) -> list[dict]:
+    accounts, sessions, audit = _stores()
+    try:
+        return AdminDashboardService(accounts, sessions, audit).security_events(actor, limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
