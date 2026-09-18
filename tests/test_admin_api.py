@@ -2,7 +2,7 @@ from fastapi.testclient import TestClient
 
 from sentinel_alpha.api import app
 from sentinel_alpha.auth import AccountStatus, AccountStore, Role
-from sentinel_alpha.browser_auth import CSRF_COOKIE, SESSION_COOKIE
+from sentinel_alpha.browser_auth import CSRF_COOKIE, SESSION_COOKIE, _csrf_for_session
 from sentinel_alpha.mfa import AdminMfaStore
 from sentinel_alpha.security_audit import SecurityAuditLog
 import pyotp
@@ -65,10 +65,11 @@ def test_admin_can_approve_with_cookie_and_csrf(monkeypatch, tmp_path):
     user_id = accounts.create_user("pending", "pending-test-passphrase")
     client = TestClient(app, base_url="https://testserver")
     client.cookies.set(SESSION_COOKIE, token)
-    client.cookies.set(CSRF_COOKIE, "csrf-test-value")
+    csrf = _csrf_for_session(token)
+    client.cookies.set(CSRF_COOKIE, csrf)
     response = client.post(
         f"/v1/admin/users/{user_id}/approve",
-        headers={"X-CSRF-Token": "csrf-test-value"},
+        headers={"X-CSRF-Token": csrf},
     )
     assert response.status_code == 200
     assert accounts.authenticate("pending", "pending-test-passphrase") is not None
