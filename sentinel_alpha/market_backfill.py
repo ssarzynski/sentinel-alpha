@@ -15,6 +15,7 @@ from sentinel_alpha.alpha_vantage_ingestion import DailyEquityBar
 from sentinel_alpha.market_adapters import ingest_alpha_vantage_daily
 from sentinel_alpha.market_models import MarketBackfillRun
 from sentinel_alpha.market_warehouse import MarketWarehouse
+from sentinel_alpha.time_utils import as_utc
 
 
 @dataclass(frozen=True)
@@ -23,19 +24,6 @@ class BackfillResult:
     inserted: int
     existing: int
     checkpoint: datetime | None
-
-
-def _as_utc(value: datetime | None) -> datetime | None:
-    """Normalize database/provider datetimes to comparable UTC-aware values.
-
-    SQLite can return a timezone-naive datetime even for DateTime(timezone=True).
-    Sentinel stores UTC, so a naive persisted checkpoint is interpreted as UTC.
-    """
-    if value is None:
-        return None
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
 
 
 def _run(warehouse: MarketWarehouse, symbol: str, received: datetime) -> MarketBackfillRun:
@@ -77,26 +65,27 @@ def backfill_alpha_vantage_daily(
     """Store one bounded batch, optionally resuming/updating durable progress."""
     if batch_limit < 1 or batch_limit > 5000:
         raise ValueError("batch_limit must be between 1 and 5000")
-    received = _as_utc(ingested_at or datetime.now(timezone.utc))
+    received = as_utc(ingested_at or datetime.now(timezone.utc))
+    assert received is not None
     materialized = list(bars)
     if not materialized:
-        return BackfillResult(0, 0, 0, _as_utc(after))
+        return BackfillResult(0, 0, 0, as_utc(after))
     symbols = {bar.symbol.strip().upper() for bar in materialized}
     if len(symbols) != 1:
         raise ValueError("one backfill batch must contain exactly one symbol")
 
     run = _run(warehouse, next(iter(symbols)), received) if persist_progress else None
-    checkpoint = _as_utc(after if after is not None else (run.checkpoint_at if run is not None else None))
+    checkpoint = as_utc(after if after is not None else (run.checkpoint_at if run is not None else None))
     candidates = sorted(
-        (bar for bar in materialized if checkpoint is None or _as_utc(bar.observed_at) > checkpoint),
-        key=lambda bar: _as_utc(bar.observed_at),
+        (bar for bar in materialized if checkpoint is None or as_utc(bar.observed_at) > checkpoint),
+        key=lambda bar: as_utc(bar.observed_at),
     )[:batch_limit]
     inserted = existing = 0
     for bar in candidates:
         _, created = ingest_alpha_vantage_daily(warehouse, bar, ingested_at=received)
         inserted += int(created)
         existing += int(not created)
-        checkpoint = _as_utc(bar.observed_at)
+        checkpoint = as_utc(bar.observed_at)
 
     if run is not None:
         run.status = "running" if len(candidates) == batch_limit else "complete"
