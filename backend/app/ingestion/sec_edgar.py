@@ -7,6 +7,7 @@ import httpx
 
 SEC_BASE_URL = "https://data.sec.gov"
 DEFAULT_FORMS = {"8-K", "10-K", "10-Q", "4"}
+MAX_DOCUMENT_BYTES = 5_000_000
 
 
 @dataclass(frozen=True)
@@ -23,14 +24,11 @@ class SecFiling:
     def filing_url(self) -> str:
         cik_number = str(int(self.cik))
         accession_compact = self.accession_number.replace("-", "")
-        return (
-            f"https://www.sec.gov/Archives/edgar/data/{cik_number}/"
-            f"{accession_compact}/{self.primary_document}"
-        )
+        return f"https://www.sec.gov/Archives/edgar/data/{cik_number}/{accession_compact}/{self.primary_document}"
 
 
 class SecEdgarClient:
-    """Small SEC submissions API client with an explicit identifying User-Agent."""
+    """Small SEC submissions/document client with an explicit identifying User-Agent."""
 
     def __init__(self, user_agent: str | None = None, timeout: float = 20.0) -> None:
         self.user_agent = user_agent or os.getenv("SEC_USER_AGENT", "SentinelAlpha research@example.com")
@@ -47,6 +45,25 @@ class SecEdgarClient:
             response.raise_for_status()
             return response.json()
 
+    def get_filing_document(self, filing: SecFiling, *, max_bytes: int = MAX_DOCUMENT_BYTES) -> str:
+        """Fetch a filing primary document and fail closed on invalid/unbounded content."""
+        if filing.form != "4":
+            raise ValueError("filing document parser currently supports Form 4 only")
+        if not filing.primary_document or "/" in filing.primary_document or "\\" in filing.primary_document:
+            raise ValueError("invalid SEC primary document name")
+        if max_bytes < 1:
+            raise ValueError("max_bytes must be positive")
+        with httpx.Client(timeout=self.timeout, headers=self._headers(), follow_redirects=True) as client:
+            response = client.get(filing.filing_url)
+            response.raise_for_status()
+            content = response.content
+        if len(content) > max_bytes:
+            raise ValueError("SEC filing document exceeds configured size limit")
+        text = content.decode("utf-8", errors="strict")
+        if "<ownershipDocument" not in text:
+            raise ValueError("SEC Form 4 primary document is not ownership XML")
+        return text
+
     def recent_filings(self, cik: str, forms: set[str] | None = None, limit: int = 50) -> list[SecFiling]:
         payload = self.get_submissions(cik)
         recent = payload.get("filings", {}).get("recent", {})
@@ -57,17 +74,7 @@ class SecEdgarClient:
             form = recent.get("form", [])[index]
             if form not in wanted:
                 continue
-            results.append(
-                SecFiling(
-                    cik=str(payload.get("cik", cik)),
-                    accession_number=recent["accessionNumber"][index],
-                    form=form,
-                    filing_date=recent.get("filingDate", [""] * count)[index],
-                    report_date=(recent.get("reportDate", [None] * count)[index] or None),
-                    primary_document=recent.get("primaryDocument", [""] * count)[index],
-                    primary_doc_description=(recent.get("primaryDocDescription", [None] * count)[index] or None),
-                )
-            )
+            results.append(SecFiling(cik=str(payload.get("cik", cik)), accession_number=recent["accessionNumber"][index], form=form, filing_date=recent.get("filingDate", [""] * count)[index], report_date=(recent.get("reportDate", [None] * count)[index] or None), primary_document=recent.get("primaryDocument", [""] * count)[index], primary_doc_description=(recent.get("primaryDocDescription", [None] * count)[index] or None)))
             if len(results) >= limit:
                 break
         return results
