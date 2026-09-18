@@ -115,3 +115,22 @@ class AdminAccountService:
         if row["status"] != AccountStatus.LOCKED.value:
             raise ValueError("only locked accounts can be unlocked")
         self.set_status(actor, target_user_id, AccountStatus.ACTIVE)
+
+    def require_password_change(self, actor: UserAccount, target_user_id: int) -> None:
+        require_admin(actor)
+        if actor.user_id == target_user_id:
+            raise ValueError("administrator must change own password through the password-change flow")
+        now = datetime.now(timezone.utc).isoformat()
+        with self.accounts._connect() as connection:
+            row = connection.execute(
+                "SELECT id,status FROM users WHERE id=?", (target_user_id,)
+            ).fetchone()
+            if row is None:
+                raise LookupError("target user not found")
+            if row["status"] != AccountStatus.ACTIVE.value:
+                raise ValueError("password change can only be required for an active account")
+            connection.execute(
+                "UPDATE users SET must_change_password=1,updated_at=? WHERE id=?",
+                (now, target_user_id),
+            )
+        self.sessions.revoke_all(target_user_id)
