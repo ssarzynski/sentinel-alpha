@@ -174,16 +174,37 @@ class MfaRecoveryChallenge(BaseModel):
     code: str = Field(min_length=32, max_length=32, pattern=r"^[0-9a-fA-F]{32}$")
 
 
+def _ensure_recovery_attempt_schema(connection) -> None:
+    """Upgrade legacy per-session/source MFA recovery limits to account-wide limits."""
+    connection.execute("""CREATE TABLE IF NOT EXISTS mfa_recovery_attempts (
+        user_id INTEGER PRIMARY KEY, session_fingerprint TEXT NOT NULL,
+        source_fingerprint TEXT NOT NULL, failures INTEGER NOT NULL DEFAULT 0,
+        blocked_until TEXT
+    )""")
+    info = connection.execute("PRAGMA table_info(mfa_recovery_attempts)").fetchall()
+    pk_columns = [row["name"] for row in sorted(info, key=lambda row: row["pk"]) if row["pk"]]
+    if pk_columns == ["user_id"]:
+        return
+    connection.execute("""CREATE TABLE mfa_recovery_attempts_v2 (
+        user_id INTEGER PRIMARY KEY, session_fingerprint TEXT NOT NULL,
+        source_fingerprint TEXT NOT NULL, failures INTEGER NOT NULL DEFAULT 0,
+        blocked_until TEXT
+    )""")
+    connection.execute("""INSERT INTO mfa_recovery_attempts_v2
+        (user_id,session_fingerprint,source_fingerprint,failures,blocked_until)
+        SELECT user_id, MAX(session_fingerprint), MAX(source_fingerprint),
+               SUM(failures), MAX(blocked_until)
+        FROM mfa_recovery_attempts GROUP BY user_id""")
+    connection.execute("DROP TABLE mfa_recovery_attempts")
+    connection.execute("ALTER TABLE mfa_recovery_attempts_v2 RENAME TO mfa_recovery_attempts")
+
+
 def _recovery_attempt_allowed(auth: AuthenticationService, user_id: int, session_token: str, source: str | None) -> tuple[bool, int]:
     now = datetime.now(timezone.utc)
     session_fp = hashlib.sha256(session_token.encode()).hexdigest()[:16]
     source_fp = auth._source_fingerprint(source)
     with auth.accounts._connect() as connection:
-        connection.execute("""CREATE TABLE IF NOT EXISTS mfa_recovery_attempts (
-            user_id INTEGER PRIMARY KEY, session_fingerprint TEXT NOT NULL,
-            source_fingerprint TEXT NOT NULL, failures INTEGER NOT NULL DEFAULT 0,
-            blocked_until TEXT
-        )""")
+        _ensure_recovery_attempt_schema(connection)
         row = connection.execute(
             "SELECT failures,blocked_until FROM mfa_recovery_attempts WHERE user_id=?",
             (user_id,),
@@ -200,11 +221,7 @@ def _record_recovery_failure(auth: AuthenticationService, user_id: int, session_
     session_fp = hashlib.sha256(session_token.encode()).hexdigest()[:16]
     source_fp = auth._source_fingerprint(source) or "unknown"
     with auth.accounts._connect() as connection:
-        connection.execute("""CREATE TABLE IF NOT EXISTS mfa_recovery_attempts (
-            user_id INTEGER PRIMARY KEY, session_fingerprint TEXT NOT NULL,
-            source_fingerprint TEXT NOT NULL, failures INTEGER NOT NULL DEFAULT 0,
-            blocked_until TEXT
-        )""")
+        _ensure_recovery_attempt_schema(connection)
         row = connection.execute(
             "SELECT failures FROM mfa_recovery_attempts WHERE user_id=?",
             (user_id,),
