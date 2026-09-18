@@ -156,13 +156,13 @@ def _recovery_attempt_allowed(auth: AuthenticationService, user_id: int, session
     source_fp = auth._source_fingerprint(source)
     with auth.accounts._connect() as connection:
         connection.execute("""CREATE TABLE IF NOT EXISTS mfa_recovery_attempts (
-            user_id INTEGER NOT NULL, session_fingerprint TEXT NOT NULL,
+            user_id INTEGER PRIMARY KEY, session_fingerprint TEXT NOT NULL,
             source_fingerprint TEXT NOT NULL, failures INTEGER NOT NULL DEFAULT 0,
-            blocked_until TEXT, PRIMARY KEY(user_id,session_fingerprint,source_fingerprint)
+            blocked_until TEXT
         )""")
         row = connection.execute(
-            "SELECT failures,blocked_until FROM mfa_recovery_attempts WHERE user_id=? AND session_fingerprint=? AND source_fingerprint=?",
-            (user_id, session_fp, source_fp or "unknown"),
+            "SELECT failures,blocked_until FROM mfa_recovery_attempts WHERE user_id=?",
+            (user_id,),
         ).fetchone()
     if row and row["blocked_until"]:
         until = datetime.fromisoformat(row["blocked_until"])
@@ -182,15 +182,17 @@ def _record_recovery_failure(auth: AuthenticationService, user_id: int, session_
             blocked_until TEXT, PRIMARY KEY(user_id,session_fingerprint,source_fingerprint)
         )""")
         row = connection.execute(
-            "SELECT failures FROM mfa_recovery_attempts WHERE user_id=? AND session_fingerprint=? AND source_fingerprint=?",
-            (user_id, session_fp, source_fp),
+            "SELECT failures FROM mfa_recovery_attempts WHERE user_id=?",
+            (user_id,),
         ).fetchone()
         failures = (int(row["failures"]) if row else 0) + 1
         blocked = now + timedelta(minutes=15) if failures >= 5 else None
         connection.execute(
             """INSERT INTO mfa_recovery_attempts(user_id,session_fingerprint,source_fingerprint,failures,blocked_until)
-            VALUES(?,?,?,?,?) ON CONFLICT(user_id,session_fingerprint,source_fingerprint)
-            DO UPDATE SET failures=excluded.failures,blocked_until=excluded.blocked_until""",
+            VALUES(?,?,?,?,?) ON CONFLICT(user_id)
+            DO UPDATE SET session_fingerprint=excluded.session_fingerprint,
+                          source_fingerprint=excluded.source_fingerprint,
+                          failures=excluded.failures,blocked_until=excluded.blocked_until""",
             (user_id, session_fp, source_fp, failures, blocked.isoformat() if blocked else None),
         )
     return 900 if blocked else 0
@@ -199,8 +201,8 @@ def _record_recovery_failure(auth: AuthenticationService, user_id: int, session_
 def _clear_recovery_failures(auth: AuthenticationService, user_id: int, session_token: str, source: str | None) -> None:
     with auth.accounts._connect() as connection:
         connection.execute(
-            "DELETE FROM mfa_recovery_attempts WHERE user_id=? AND session_fingerprint=? AND source_fingerprint=?",
-            (user_id, hashlib.sha256(session_token.encode()).hexdigest()[:16], auth._source_fingerprint(source) or "unknown"),
+            "DELETE FROM mfa_recovery_attempts WHERE user_id=?",
+            (user_id,),
         )
 
 
