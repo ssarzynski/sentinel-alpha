@@ -177,9 +177,9 @@ def _record_recovery_failure(auth: AuthenticationService, user_id: int, session_
     source_fp = auth._source_fingerprint(source) or "unknown"
     with auth.accounts._connect() as connection:
         connection.execute("""CREATE TABLE IF NOT EXISTS mfa_recovery_attempts (
-            user_id INTEGER NOT NULL, session_fingerprint TEXT NOT NULL,
+            user_id INTEGER PRIMARY KEY, session_fingerprint TEXT NOT NULL,
             source_fingerprint TEXT NOT NULL, failures INTEGER NOT NULL DEFAULT 0,
-            blocked_until TEXT, PRIMARY KEY(user_id,session_fingerprint,source_fingerprint)
+            blocked_until TEXT
         )""")
         row = connection.execute(
             "SELECT failures FROM mfa_recovery_attempts WHERE user_id=?",
