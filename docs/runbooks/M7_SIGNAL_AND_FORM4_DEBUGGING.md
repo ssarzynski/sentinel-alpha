@@ -3,16 +3,10 @@
 ## Purpose
 This runbook documents the Milestone 7 market-provenance, signal-gating, and SEC Form 4 pipeline so a future maintainer can diagnose failures without reverse-engineering the implementation.
 
-## Canonical flow
-1. `ingestion/sec_edgar.py` retrieves SEC submissions and bounded Form 4 primary documents.
-2. `ingestion/form4_xml.py` is the canonical ownership-XML parser. Do not create a second XML parser.
-3. `ingestion/form4.py` classifies normalized transactions economically. P/S open-market transactions are distinct from F tax withholding, A grants, G gifts, M/X exercises, and derivatives.
-4. `services/evidence.py` persists append-only filing and transaction evidence. Transaction evidence retains accession number, primary document, filing URL and transaction index.
-5. `services/sec_signal_evidence.py` adapts eligible evidence into signal confirmations. Multiple SEC rows remain one SEC source family.
-6. `data_quality_gate.py` evaluates market provenance/freshness.
-7. `signal_quality_gate.py` prevents STRONG alerts without >=2 independent evidence families and acceptable market data.
-8. `signal_evaluation.py` is the canonical signal evaluation path. It never executes a trade.
-9. Portfolio policy decisions use the same market-quality gate and record withheld risk in the Decision Ledger.
+## Canonical production flow
+`scheduler -> IngestionRun -> sec_watchlist_worker -> SEC discovery -> sec_form4_orchestrator -> form4_xml parser -> form4 classifier -> insider evidence -> signal system`
+
+`ingestion/form4_xml.py` is the canonical ownership-XML parser; do not create a second parser. `ingestion/form4.py` owns economic classification. `services/insider_evidence.py` owns normalized transaction evidence. Multiple SEC rows remain one SEC source family for confirmation purposes.
 
 ## Invariants
 - No automatic trading or order creation.
@@ -25,24 +19,31 @@ This runbook documents the Milestone 7 market-provenance, signal-gating, and SEC
 - Tax withholding, gifts, grants, exercises and derivatives must not masquerade as discretionary open-market sales.
 - Failed SEC document retrieval/parsing must never fabricate transaction evidence.
 - Evidence is append-only/idempotent through deterministic evidence keys.
+- One company failure must not suppress processing of the remaining watchlist.
 
-## SEC ingestion observability
-Search application/worker logs for `sec_ingestion`. The stable lifecycle events are:
-- `event=sync_started`: ticker, CIK, number of filings returned by SEC.
-- `event=filing_created`: new filing metadata persisted; includes ticker, form, accession.
-- `event=filing_existing`: duplicate/idempotent filing path; includes ticker, form, accession.
-- `event=form4_parsed`: Form 4 document parsed; includes accession, transaction count and newly created transaction-evidence count.
-- `event=form4_failed`: fail-closed document/parse path; includes ticker, accession, `stage=form4_document`, exception type and bounded error message.
-- `event=sync_completed`: aggregate created/existing/evidence/transaction/failure counts.
+## Scheduled worker: durable audit + live diagnostics
+Every scheduled execution creates an `IngestionRun` before external SEC work begins. Terminal states are `completed`, `completed_with_errors`, or `failed`. Durable counts include checked companies, discovered filings, new filings, skipped existing filings and evidence rows. Company-level failures are stored in `failures_json`; fatal worker exceptions mark the run failed and are re-raised.
 
-Start with `sync_completed` for the affected ticker, then trace the accession through `filing_created|filing_existing` and `form4_parsed|form4_failed`. Logs intentionally exclude SEC document bodies and secrets.
+Search worker logs for `sec_ingestion`. Stable scheduled events are:
+- `event=watchlist_started`: number of configured watchlist items.
+- `event=company_discovered`: ticker, CIK and discovered filing count.
+- `event=filing_created`: ticker, accession and form for a newly persisted filing.
+- `event=filing_existing`: ticker, accession and form for the idempotent duplicate path.
+- `event=form4_parsed`: ticker, accession and normalized transaction count.
+- `event=company_failed`: ticker, CIK, `stage=watchlist_company`, exception type and bounded error message.
+- `event=watchlist_completed`: checked/discovered/new/skipped/evidence/failure totals.
+
+For a scheduled incident, start with the latest `IngestionRun`. If status is `completed_with_errors`, inspect `failures_json`, then search logs by ticker/CIK. If an accession exists, trace `filing_created|filing_existing -> form4_parsed`. A `company_failed` event is isolated: verify later watchlist tickers still emit `company_discovered` and that the completed run's `checked` count covers the full configured watchlist.
+
+## Direct company-sync diagnostics
+The direct `sync_company_filings()` path emits `sync_started`, `filing_created`, `filing_existing`, `form4_parsed`, `form4_failed`, and `sync_completed`. `form4_failed` uses `stage=form4_document`. This path is useful for targeted/manual synchronization; scheduled production execution should be debugged through `IngestionRun` plus the scheduled events above.
 
 ## Failure tracing
 ### SEC metadata exists but no transaction evidence
-Inspect `sync_company_filings()` result `form4_failures` and logs for `event=form4_failed`. Match `accession_number`/`accession`, then check stage `form4_document`. Common causes: HTTP error, invalid primary-document name, document > configured size, non-UTF-8 response, non-ownership XML, or parser rejection.
+Match the accession in evidence/filing metadata and logs. On direct sync inspect `form4_failures`/`event=form4_failed`. On scheduled execution inspect the `IngestionRun` and worker events. Common causes include HTTP failure, invalid/empty document, malformed ownership XML, parser rejection, or upstream SEC response problems.
 
 ### Insider sale expected but warning absent
-Inspect transaction evidence payload: `form`, `transaction_code`, `transaction_direction`, `economic_type`, `signal_eligible`, `is_derivative`, and `classification_reasons`. A valid warning requires Form 4 + signal eligible + `open_market_sale` + `sell`.
+Inspect normalized evidence fields: transaction code/direction, economic type, `signal_eligible`, derivative status and classification reasons. A valid warning requires a signal-eligible non-derivative open-market sale; dispositions for tax withholding, gifts, grants or exercises are not equivalent.
 
 ### STRONG signal becomes WITHHELD
 Inspect `gate_reasons`. `fewer_than_two_independent_evidence_confirmations` means evidence-family diversity failed. `market_data_withhold` means the provenance/freshness gate failed. Then inspect per-asset provenance.
@@ -51,10 +52,10 @@ Inspect `gate_reasons`. `fewer_than_two_independent_evidence_confirmations` mean
 Inspect Decision Ledger `risk_data_status`. `withheld:data_quality:withhold` means risk was intentionally not calculated because provenance failed; this is not a numerical risk-engine failure.
 
 ## Debugging data to preserve
-When adding new ingestion/signal components, preserve stable IDs, source family, source URL, source record/accession ID, observed timestamp, normalized classification, gate status/reasons, and human-review state. Errors should include a machine-readable stage/code plus a bounded message; do not store secrets or full uncontrolled remote responses.
+When adding ingestion/signal components, preserve stable IDs, source family, source URL, source record/accession ID, observed timestamp, normalized classification, gate status/reasons, human-review state and durable run status. Errors should include a machine-readable stage/code plus bounded message; never store secrets or full uncontrolled remote responses.
 
 ## Testing expectations
-Every change to this path should test: success, idempotency/duplicate ingestion, malformed input, upstream HTTP failure, classification edge cases, source-family deduplication, stale/unconfirmed market data, fail-closed behavior, and observable lifecycle/failure events. CI must pass backend tests, frontend build, migrations, Docker/Compose startup/health, worker checks, and teardown before advancing.
+Every change to this path should test success, idempotency, malformed input, upstream failure, classification edge cases, source-family deduplication, stale/unconfirmed market data, fail-closed behavior, durable `IngestionRun` state, observable lifecycle/failure events, and per-company failure isolation. CI must pass backend tests, frontend build, migrations, Docker/Compose startup/health, worker checks and teardown before advancing.
 
 ## Maintenance rule
-Update this runbook and nearby function/module docstrings whenever an invariant, stage name, event name, payload field, or failure behavior changes. Prefer explicit reason/event codes over prose-only failures so future logs and dashboards remain searchable.
+Update this runbook and nearby docstrings whenever an invariant, stage name, event name, payload field, durable audit field or failure behavior changes. Prefer explicit reason/event codes over prose-only failures so future logs and dashboards remain searchable.
