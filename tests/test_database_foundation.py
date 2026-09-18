@@ -3,16 +3,16 @@ import sqlite3
 import pytest
 from sqlalchemy import text
 
-from sentinel_alpha.database import Base, build_engine, session_scope
+from sentinel_alpha.database import build_engine, session_scope
 
 
-def test_import_and_engine_creation_do_not_create_application_tables(tmp_path):
+def test_engine_creation_does_not_create_application_tables(tmp_path):
+    """Registered ORM metadata must not perform runtime DDL by itself."""
     database=tmp_path/"foundation.db"
     engine=build_engine(f"sqlite:///{database}")
     with engine.connect() as connection:
         tables=connection.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).scalars().all()
     assert tables==[]
-    assert list(Base.metadata.tables)==[]
     engine.dispose()
 
 
