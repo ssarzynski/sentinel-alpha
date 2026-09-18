@@ -70,6 +70,6 @@ def test_logout_audit_carries_validated_request_id(monkeypatch, tmp_path):
         headers={"X-CSRF-Token": csrf, "X-Request-ID": "browser-logout-trace-1"},
     )
     assert response.status_code == 200
-    events = SecurityAuditLog(db).list_events(limit=20)
+    events = SecurityAuditLog(db).recent(limit=20)
     logout = next(event for event in events if event.event_type == "LOGOUT")
     assert logout.request_id == "browser-logout-trace-1"
