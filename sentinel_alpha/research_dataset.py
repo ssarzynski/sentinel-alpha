@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from sentinel_alpha.market_warehouse import MarketWarehouse
     from sentinel_alpha.research_examples import ResearchExample
+    from sentinel_alpha.resource_metrics import ResourceMetrics
 
 
 @dataclass(frozen=True)
@@ -32,13 +33,12 @@ def build_research_dataset(
     horizons: tuple[int, ...] = (5, 20, 60),
     min_history: int = 6,
     max_examples: int = 5000,
+    metrics: "ResourceMetrics | None" = None,
 ) -> ResearchDataset:
-    """Build a bounded dataset from one ordered point-in-time history snapshot."""
-    # Local import avoids a module cycle while retaining ResearchDataset as the
-    # stable public return type.
+    """Build a bounded dataset and optionally report compact usage counters."""
     from sentinel_alpha.research_snapshot import build_research_dataset_snapshot
 
-    return build_research_dataset_snapshot(
+    dataset = build_research_dataset_snapshot(
         warehouse,
         symbol,
         dataset_known_by=dataset_known_by,
@@ -46,3 +46,9 @@ def build_research_dataset(
         min_history=min_history,
         max_examples=max_examples,
     )
+    if metrics is not None:
+        # Snapshot construction performs one history query. Derived examples are
+        # ephemeral, so they intentionally contribute zero persistent bytes.
+        metrics.record_sql(1)
+        metrics.record_records(len(dataset.examples))
+    return dataset
