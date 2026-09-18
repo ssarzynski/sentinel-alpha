@@ -83,11 +83,23 @@ def _status_action(actor: UserAccount, user_id: int, status: AccountStatus, even
             row = connection.execute("SELECT status,role FROM users WHERE id=?", (user_id,)).fetchone()
             if row is None:
                 raise LookupError("target user not found")
-            if status is AccountStatus.ACTIVE and row["status"] == AccountStatus.PENDING_APPROVAL.value:
-                pass
-            elif status is AccountStatus.REJECTED and row["status"] != AccountStatus.PENDING_APPROVAL.value:
+            current_status = AccountStatus(row["status"])
+            current_role = Role(row["role"])
+            if event == "ACCOUNT_APPROVED" and current_status is not AccountStatus.PENDING_APPROVAL:
+                raise ValueError("only pending accounts can be approved")
+            if event == "ACCOUNT_REJECTED" and current_status is not AccountStatus.PENDING_APPROVAL:
                 raise ValueError("only pending accounts can be rejected")
-            now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+            if event in {"ACCOUNT_DISABLED", "ACCOUNT_LOCKED"}:
+                if actor.user_id == user_id:
+                    raise ValueError("administrator cannot disable or lock own account")
+                if current_role is Role.ADMIN and current_status is AccountStatus.ACTIVE:
+                    remaining = connection.execute(
+                        "SELECT COUNT(*) AS count FROM users WHERE role=? AND status=? AND id<>?",
+                        (Role.ADMIN.value, AccountStatus.ACTIVE.value, user_id),
+                    ).fetchone()["count"]
+                    if remaining == 0:
+                        raise ValueError("cannot disable or lock the last active administrator")
+            now = datetime.now(timezone.utc).isoformat()
             connection.execute("UPDATE users SET status=?,updated_at=? WHERE id=?", (status.value, now, user_id))
             audit.append_in_connection(connection, event, success=True, actor_user_id=actor.user_id, target_user_id=user_id)
         if status is not AccountStatus.ACTIVE:
