@@ -79,3 +79,19 @@ def test_blank_independent_group_is_rejected():
 def test_incomplete_source_identity_is_rejected():
     with pytest.raises(ValueError, match="complete source identity"):
         make_record(SourceIdentity("", "Messari", "market"))
+
+
+def test_mixed_explicit_and_implicit_lineage_fails_closed():
+    records = [
+        make_record(SourceIdentity("fred-series", "FRED", "macro", "federal-reserve")),
+        make_record(SourceIdentity("macro-reseller", "VendorAlias", "macro")),
+    ]
+    assert independent_confirmation_keys(records) == {"federal-reserve"}
+
+
+def test_explicit_distinct_upstream_groups_remain_independent():
+    records = [
+        make_record(SourceIdentity("sec", "SEC", "filings", "sec-edgar")),
+        make_record(SourceIdentity("issuer", "NVIDIA", "investor-relations", "nvidia-ir")),
+    ]
+    assert independent_confirmation_keys(records) == {"sec-edgar", "nvidia-ir"}
