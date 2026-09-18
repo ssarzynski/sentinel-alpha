@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - consolidation/architecture-baseline
   pull_request:
     branches: [main]
 
@@ -32,5 +34,6 @@ jobs:
           sentinel_alpha/macro_provenance.py
           sentinel_alpha/fred_ingestion.py
           sentinel_alpha/treasury_ingestion.py
+          sentinel_alpha/database.py
       - name: Run tests
         run: pytest -q
