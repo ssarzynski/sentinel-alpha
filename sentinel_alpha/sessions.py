@@ -123,6 +123,17 @@ class SessionStore:
             ).fetchone()
         return bool(row and row["mfa_verified"])
 
+    def active_sessions(self, user_id: int) -> list[dict]:
+        now = datetime.now(timezone.utc)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT id,created_at,last_seen_at,expires_at,mfa_verified
+                FROM auth_sessions WHERE user_id=? AND revoked_at IS NULL AND expires_at>? 
+                ORDER BY created_at DESC""",
+                (user_id, now.isoformat()),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def revoke_all(self, user_id: int) -> None:
         now = datetime.now(timezone.utc).isoformat()
         with self._connect() as connection:
