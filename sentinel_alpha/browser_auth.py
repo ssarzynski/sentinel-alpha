@@ -5,7 +5,7 @@ import os
 import secrets
 
 from fastapi import APIRouter, Cookie, Header, HTTPException, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .auth import AccountStore
 from .auth_service import AuthenticationService
@@ -20,13 +20,13 @@ CSRF_COOKIE = "__Host-sentinel_csrf"
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=1, max_length=1024)
 
 
 class PasswordChangeRequest(BaseModel):
-    current_password: str
-    new_password: str
+    current_password: str = Field(min_length=1, max_length=1024)
+    new_password: str = Field(min_length=12, max_length=1024)
 
 
 def _service() -> tuple[AuthenticationService, SessionStore]:
@@ -99,7 +99,7 @@ def logout(
 
 
 class MfaChallenge(BaseModel):
-    code: str
+    code: str = Field(pattern=r"^[0-9]{6}$")
 
 
 @router.post("/mfa/verify")
