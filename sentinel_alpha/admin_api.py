@@ -240,3 +240,34 @@ def update_password_policy(
         "allowed_expiration_days": [30, 60, 90],
         "applies_to_new_password_changes": True,
     }
+
+@router.get("/users/{user_id}/sessions")
+def user_sessions(
+    user_id: int,
+    actor: UserAccount = Depends(authenticated_admin),
+) -> list[dict]:
+    accounts, sessions, audit = _stores()
+    # Never expose session tokens or token hashes to the administrator UI.
+    with accounts._connect() as connection:
+        target = connection.execute("SELECT id FROM users WHERE id=?", (user_id,)).fetchone()
+    if target is None:
+        raise HTTPException(status_code=404, detail="account not found")
+    return sessions.active_sessions(user_id)
+
+
+@router.post("/users/{user_id}/sessions/revoke")
+def revoke_user_sessions(
+    user_id: int,
+    actor: UserAccount = Depends(authenticated_admin),
+    _: None = Depends(require_csrf),
+) -> dict:
+    if user_id == actor.user_id:
+        raise HTTPException(status_code=409, detail="use logout to end your own administrator session")
+    accounts, sessions, audit = _stores()
+    with accounts._connect() as connection:
+        target = connection.execute("SELECT id FROM users WHERE id=?", (user_id,)).fetchone()
+    if target is None:
+        raise HTTPException(status_code=404, detail="account not found")
+    sessions.revoke_all(user_id)
+    audit.append("SESSIONS_REVOKED", success=True, actor_user_id=actor.user_id, target_user_id=user_id)
+    return {"user_id": user_id, "sessions_revoked": True}
