@@ -146,7 +146,7 @@ class MfaChallenge(BaseModel):
 
 
 class MfaRecoveryChallenge(BaseModel):
-    code: str = Field(min_length=16, max_length=16, pattern=r"^[0-9a-fA-F]{16}$")
+    code: str = Field(min_length=32, max_length=32, pattern=r"^[0-9a-fA-F]{32}$")
 
 
 @router.post("/mfa/recovery/verify")
