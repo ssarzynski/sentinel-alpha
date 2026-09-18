@@ -54,11 +54,17 @@ def test_idle_expiry_rejects_session_before_absolute_expiry(tmp_path):
 def test_disabled_account_invalidates_existing_session(tmp_path):
     db = tmp_path / "sentinel.db"
     accounts = AccountStore(db)
-    user_id = accounts.create_user("disabled-session", "Correct-Horse-Battery-99", role=Role.ADMIN)
-    accounts.set_status(user_id, AccountStatus.ACTIVE)
+    user_id = accounts.create_user(
+        "disabled-session", "Correct-Horse-Battery-99",
+        role=Role.ADMIN, status=AccountStatus.ACTIVE,
+    )
     account = accounts.get_user(user_id)
     sessions = SessionStore(db)
     session = sessions.create(account)
     assert sessions.validate(session.token) is not None
-    with accounts._connect() as connection:\n        connection.execute("UPDATE users SET status=? WHERE id=?", (AccountStatus.DISABLED.value, user_id))
+    with accounts._connect() as connection:
+        connection.execute(
+            "UPDATE users SET status=? WHERE id=?",
+            (AccountStatus.DISABLED.value, user_id),
+        )
     assert sessions.validate(session.token) is None
