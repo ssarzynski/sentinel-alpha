@@ -15,8 +15,10 @@ from .paper_operations import PaperOperationLedger
 from .pipeline import evaluate_records
 from .providers import get_provider
 from .risk_gate import TradeProposal
+from .security_headers import SecurityHeadersMiddleware
 
 app = FastAPI(title="Sentinel Alpha", version="0.1.0")
+app.add_middleware(SecurityHeadersMiddleware)
 app.include_router(admin_router)
 app.include_router(browser_auth_router)
 
