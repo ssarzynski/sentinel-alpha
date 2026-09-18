@@ -47,6 +47,10 @@ class RoleChange(BaseModel):
     role: Role
 
 
+class PasswordPolicyChange(BaseModel):
+    expiration_days: int
+
+
 @router.get("/users")
 def users(actor: UserAccount = Depends(authenticated_admin)) -> list[dict]:
     accounts, sessions, audit = _stores()
@@ -194,3 +198,45 @@ def unlock(
     _: None = Depends(require_csrf),
 ) -> dict:
     return _recovery_action(actor, user_id, "unlock")
+
+
+@router.get("/password-policy")
+def password_policy(actor: UserAccount = Depends(authenticated_admin)) -> dict:
+    accounts, sessions, audit = _stores()
+    with accounts._connect() as connection:
+        row = connection.execute(
+            "SELECT expiration_days,updated_at,updated_by FROM password_policy WHERE id=1"
+        ).fetchone()
+    return {
+        "expiration_days": row["expiration_days"],
+        "allowed_expiration_days": [30, 60, 90],
+        "updated_at": row["updated_at"],
+        "updated_by": row["updated_by"],
+    }
+
+
+@router.put("/password-policy")
+def update_password_policy(
+    request: PasswordPolicyChange,
+    actor: UserAccount = Depends(authenticated_admin),
+    _: None = Depends(require_csrf),
+) -> dict:
+    if request.expiration_days not in {30, 60, 90}:
+        raise HTTPException(status_code=422, detail="expiration_days must be 30, 60, or 90")
+    accounts, sessions, audit = _stores()
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    with accounts._connect() as connection:
+        connection.execute(
+            """UPDATE password_policy SET expiration_days=?,updated_at=?,updated_by=? WHERE id=1""",
+            (request.expiration_days, now, actor.user_id),
+        )
+    audit.append(
+        "PASSWORD_POLICY_CHANGED", success=True, actor_user_id=actor.user_id,
+        metadata={"expiration_days": str(request.expiration_days)},
+    )
+    return {
+        "expiration_days": request.expiration_days,
+        "allowed_expiration_days": [30, 60, 90],
+        "applies_to_new_password_changes": True,
+    }
