@@ -159,14 +159,35 @@ def change_password(
         row = connection.execute("SELECT password_hash FROM users WHERE id=?", (account.user_id,)).fetchone()
         if row is None or not verify_password(current_password, row["password_hash"]):
             raise ValueError("current password is invalid")
+        previous_hashes = [row["password_hash"] for row in connection.execute(
+            """SELECT password_hash FROM password_history
+            WHERE user_id=? ORDER BY created_at DESC, id DESC LIMIT 4""",
+            (account.user_id,),
+        ).fetchall()]
+        if verify_password(new_password, row["password_hash"]) or any(
+            verify_password(new_password, previous) for previous in previous_hashes
+        ):
+            raise ValueError("new password was recently used")
         days = connection.execute(
             "SELECT expiration_days FROM password_policy WHERE id=1"
         ).fetchone()[0]
         now = datetime.now(timezone.utc)
+        new_hash = hash_password(new_password)
+        connection.execute(
+            "INSERT INTO password_history(user_id,password_hash,created_at) VALUES(?,?,?)",
+            (account.user_id, row["password_hash"], now.isoformat()),
+        )
+        connection.execute(
+            """DELETE FROM password_history WHERE user_id=? AND id NOT IN (
+                SELECT id FROM password_history WHERE user_id=?
+                ORDER BY created_at DESC, id DESC LIMIT 4
+            )""",
+            (account.user_id, account.user_id),
+        )
         connection.execute(
             """UPDATE users SET password_hash=?,must_change_password=0,password_changed_at=?,
             password_expires_at=?,updated_at=? WHERE id=?""",
-            (hash_password(new_password), now.isoformat(), (now + timedelta(days=days)).isoformat(),
+            (new_hash, now.isoformat(), (now + timedelta(days=days)).isoformat(),
              now.isoformat(), account.user_id),
         )
     sessions.revoke_all(account.user_id)
