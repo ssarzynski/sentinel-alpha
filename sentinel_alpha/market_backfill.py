@@ -1,7 +1,7 @@
 """Controlled historical market backfill orchestration.
 
-Provider acquisition stays outside this module. The orchestrator accepts verified
-bars, processes bounded batches, and returns a checkpoint suitable for resuming.
+Provider acquisition stays outside this module. Batches are bounded and durable
+progress can resume from the last committed market-time checkpoint.
 """
 from __future__ import annotations
 
@@ -9,8 +9,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterable
 
+from sqlalchemy import select
+
 from sentinel_alpha.alpha_vantage_ingestion import DailyEquityBar
 from sentinel_alpha.market_adapters import ingest_alpha_vantage_daily
+from sentinel_alpha.market_models import MarketBackfillRun
 from sentinel_alpha.market_warehouse import MarketWarehouse
 
 
@@ -22,6 +25,33 @@ class BackfillResult:
     checkpoint: datetime | None
 
 
+def _run(warehouse: MarketWarehouse, symbol: str, received: datetime) -> MarketBackfillRun:
+    session = warehouse.session
+    normalized = symbol.strip().upper()
+    run = session.scalar(
+        select(MarketBackfillRun).where(
+            MarketBackfillRun.provider == "ALPHA_VANTAGE",
+            MarketBackfillRun.symbol == normalized,
+            MarketBackfillRun.channel == "daily",
+        )
+    )
+    if run is None:
+        run = MarketBackfillRun(
+            provider="ALPHA_VANTAGE",
+            symbol=normalized,
+            channel="daily",
+            status="running",
+            processed=0,
+            inserted=0,
+            existing=0,
+            started_at=received,
+            updated_at=received,
+        )
+        session.add(run)
+        session.flush()
+    return run
+
+
 def backfill_alpha_vantage_daily(
     warehouse: MarketWarehouse,
     bars: Iterable[DailyEquityBar],
@@ -29,22 +59,40 @@ def backfill_alpha_vantage_daily(
     ingested_at: datetime | None = None,
     after: datetime | None = None,
     batch_limit: int = 500,
+    persist_progress: bool = False,
 ) -> BackfillResult:
-    """Store a deterministic bounded batch and report the newest market-time checkpoint."""
+    """Store one bounded batch, optionally resuming/updating durable progress."""
     if batch_limit < 1 or batch_limit > 5000:
         raise ValueError("batch_limit must be between 1 and 5000")
     received = ingested_at or datetime.now(timezone.utc)
+    materialized = list(bars)
+    if not materialized:
+        return BackfillResult(0, 0, 0, after)
+    symbols = {bar.symbol.strip().upper() for bar in materialized}
+    if len(symbols) != 1:
+        raise ValueError("one backfill batch must contain exactly one symbol")
+
+    run = _run(warehouse, next(iter(symbols)), received) if persist_progress else None
+    checkpoint = after if after is not None else (run.checkpoint_at if run is not None else None)
     candidates = sorted(
-        (bar for bar in bars if after is None or bar.observed_at > after),
+        (bar for bar in materialized if checkpoint is None or bar.observed_at > checkpoint),
         key=lambda bar: bar.observed_at,
     )[:batch_limit]
     inserted = existing = 0
-    checkpoint = after
     for bar in candidates:
         _, created = ingest_alpha_vantage_daily(warehouse, bar, ingested_at=received)
-        if created:
-            inserted += 1
-        else:
-            existing += 1
+        inserted += int(created)
+        existing += int(not created)
         checkpoint = bar.observed_at
+
+    if run is not None:
+        run.status = "running" if len(candidates) == batch_limit else "complete"
+        run.checkpoint_at = checkpoint
+        run.processed += len(candidates)
+        run.inserted += inserted
+        run.existing += existing
+        run.updated_at = received
+        run.error_message = None
+        warehouse.session.flush()
+
     return BackfillResult(len(candidates), inserted, existing, checkpoint)
