@@ -165,3 +165,58 @@ def update_password(
         "authenticated": True,
         "mfa_required": refreshed.role is Role.ADMIN,
     }
+
+
+def _admin_for_mfa(session_token: str | None) -> tuple[AuthenticationService, SessionStore, object]:
+    if not session_token:
+        raise HTTPException(status_code=401, detail="authentication required")
+    auth, sessions = _service()
+    account = sessions.validate(session_token)
+    if account is None:
+        raise HTTPException(status_code=401, detail="authentication required")
+    if account.role is not Role.ADMIN:
+        raise HTTPException(status_code=403, detail="administrator authorization required")
+    return auth, sessions, account
+
+
+@router.post("/mfa/enroll")
+def enroll_mfa(
+    session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+    csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
+    csrf_header: str | None = Header(default=None, alias="X-CSRF-Token"),
+) -> dict:
+    require_csrf(csrf_cookie, csrf_header)
+    auth, sessions, account = _admin_for_mfa(session_token)
+    mfa = AdminMfaStore(auth.accounts.database, auth.audit)
+    if mfa.enabled(account):
+        raise HTTPException(status_code=409, detail="MFA is already enabled")
+    enrollment = mfa.begin_enrollment(account)
+    return {
+        "secret": enrollment.secret,
+        "provisioning_uri": enrollment.provisioning_uri,
+        "instructions": [
+            "Add Sentinel Alpha to your authenticator app.",
+            "Enter the current 6-digit code to confirm setup.",
+            "Keep this setup screen private.",
+        ],
+    }
+
+
+@router.post("/mfa/confirm")
+def confirm_mfa(
+    payload: MfaChallenge,
+    session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+    csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
+    csrf_header: str | None = Header(default=None, alias="X-CSRF-Token"),
+) -> dict:
+    require_csrf(csrf_cookie, csrf_header)
+    auth, sessions, account = _admin_for_mfa(session_token)
+    mfa = AdminMfaStore(auth.accounts.database, auth.audit)
+    if not mfa.confirm_enrollment(account, payload.code):
+        raise HTTPException(status_code=400, detail="That verification code was not accepted. Try the current code.")
+    sessions.mark_mfa_verified(session_token, account.user_id)
+    return {
+        "mfa_enabled": True,
+        "mfa_verified": True,
+        "next_step": "dashboard",
+    }
