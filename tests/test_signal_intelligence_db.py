@@ -1,9 +1,24 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.database import Base
 from app.models import Evidence
 from app.services.signal_intelligence import evidence_fact, signal_intelligence_for_asset
 
 NOW=datetime(2026,9,18,12,0,tzinfo=timezone.utc)
+
+@pytest.fixture
+def db_session():
+    engine=create_engine("sqlite+pysqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    Session=sessionmaker(bind=engine)
+    db=Session()
+    try: yield db
+    finally:
+        db.close();engine.dispose()
 
 
 def row(key,family,*,days=0,payload=None):
