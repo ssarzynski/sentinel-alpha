@@ -15,6 +15,7 @@ class Session:
     token: str
     user_id: int
     restricted_to_password_change: bool
+    mfa_verified: bool
     expires_at: str
 
 
@@ -45,6 +46,7 @@ class SessionStore:
                     expires_at TEXT NOT NULL,
                     revoked_at TEXT,
                     restricted_to_password_change INTEGER NOT NULL,
+                    mfa_verified INTEGER NOT NULL DEFAULT 0,
                     FOREIGN KEY(user_id) REFERENCES users(id)
                 )"""
             )
@@ -68,7 +70,7 @@ class SessionStore:
                 (self._digest(token), account.user_id, now.isoformat(), now.isoformat(),
                  expires.isoformat(), int(restricted)),
             )
-        return Session(token, account.user_id, restricted, expires.isoformat())
+        return Session(token, account.user_id, restricted, False, expires.isoformat())
 
     def validate(self, token: str, *, allow_password_change_only: bool = False) -> UserAccount | None:
         now = datetime.now(timezone.utc)
@@ -96,6 +98,25 @@ class SessionStore:
                 row["user_id"], row["username"], Role(row["role"]), AccountStatus(row["status"]),
                 bool(row["must_change_password"]), row["password_expires_at"]
             )
+
+    def mark_mfa_verified(self, token: str, user_id: int) -> None:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """UPDATE auth_sessions SET mfa_verified=1
+                WHERE token_hash=? AND user_id=? AND revoked_at IS NULL""",
+                (self._digest(token), user_id),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("active session not found")
+
+    def mfa_verified(self, token: str) -> bool:
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT mfa_verified FROM auth_sessions
+                WHERE token_hash=? AND revoked_at IS NULL""",
+                (self._digest(token),),
+            ).fetchone()
+        return bool(row and row["mfa_verified"])
 
     def revoke_all(self, user_id: int) -> None:
         now = datetime.now(timezone.utc).isoformat()
