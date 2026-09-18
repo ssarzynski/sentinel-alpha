@@ -1,7 +1,8 @@
 from fastapi.testclient import TestClient
 
 from sentinel_alpha.api import app
-from sentinel_alpha.auth import AccountStatus, AccountStore\nfrom sentinel_alpha.security_audit import SecurityAuditLog
+from sentinel_alpha.auth import AccountStatus, AccountStore
+from sentinel_alpha.security_audit import SecurityAuditLog
 
 
 def test_login_sets_hardened_host_cookies(monkeypatch, tmp_path):
