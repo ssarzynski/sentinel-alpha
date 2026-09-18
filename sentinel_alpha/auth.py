@@ -102,6 +102,20 @@ class AccountStore:
                 )"""
             )
 
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS password_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                )"""
+            )
+            connection.execute(
+                """CREATE INDEX IF NOT EXISTS idx_password_history_user_created
+                ON password_history(user_id, created_at DESC)"""
+            )
+
     def create_user(
         self, username: str, password: str, *, role: Role = Role.USER,
         status: AccountStatus = AccountStatus.PENDING_APPROVAL,
