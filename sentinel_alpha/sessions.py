@@ -134,13 +134,17 @@ class SessionStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def revoke_all(self, user_id: int) -> None:
+    def revoke_all_in_connection(self, connection: sqlite3.Connection, user_id: int) -> int:
         now = datetime.now(timezone.utc).isoformat()
+        cursor = connection.execute(
+            "UPDATE auth_sessions SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL",
+            (now, user_id),
+        )
+        return cursor.rowcount
+
+    def revoke_all(self, user_id: int) -> int:
         with self._connect() as connection:
-            connection.execute(
-                "UPDATE auth_sessions SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL",
-                (now, user_id),
-            )
+            return self.revoke_all_in_connection(connection, user_id)
 
 
 def change_password(

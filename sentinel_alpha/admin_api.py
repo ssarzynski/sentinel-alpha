@@ -286,12 +286,17 @@ def revoke_user_sessions(
         raise HTTPException(status_code=409, detail="use logout to end your own administrator session")
     accounts, sessions, audit = _stores()
     with accounts._connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
         target = connection.execute("SELECT id FROM users WHERE id=?", (user_id,)).fetchone()
-    if target is None:
-        raise HTTPException(status_code=404, detail="account not found")
-    sessions.revoke_all(user_id)
-    audit.append("SESSIONS_REVOKED", success=True, actor_user_id=actor.user_id, target_user_id=user_id)
-    return {"user_id": user_id, "sessions_revoked": True}
+        if target is None:
+            raise HTTPException(status_code=404, detail="account not found")
+        revoked_count = sessions.revoke_all_in_connection(connection, user_id)
+        audit.append_in_connection(
+            connection, "SESSIONS_REVOKED", success=True,
+            actor_user_id=actor.user_id, target_user_id=user_id,
+            metadata={"revoked_count": str(revoked_count)},
+        )
+    return {"user_id": user_id, "sessions_revoked": True, "revoked_count": revoked_count}
 
 @router.post("/users/{user_id}/require-password-change")
 def require_password_change(
