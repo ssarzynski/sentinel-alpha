@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Iterable
 
 from sqlalchemy import select
@@ -52,6 +52,13 @@ def _bool(payload: dict, key: str, default: bool) -> bool:
     return value if isinstance(value,bool) else default
 
 
+def _utc(value: datetime) -> datetime:
+    """Normalize ORM timestamps; SQLite commonly drops timezone metadata."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def evidence_fact(row: Evidence) -> EvidenceFact:
     """Translate persisted evidence conservatively; unknown facts never gain eligibility."""
     payload=row.payload_json or {}
@@ -59,13 +66,13 @@ def evidence_fact(row: Evidence) -> EvidenceFact:
     economic_type=str(classification.get("economic_type","")).lower()
     direction=str(classification.get("direction","")).lower()
     insider_sale=_bool(classification,"signal_eligible",False) and economic_type=="open_market" and direction in {"sale","sell","disposed"}
-    return EvidenceFact(asset=row.asset or "",source_family=row.source_family,observed_at=row.observed_at,signal_eligible=_bool(classification,"signal_eligible",True),insider_sale=insider_sale)
+    return EvidenceFact(asset=row.asset or "",source_family=row.source_family,observed_at=_utc(row.observed_at),signal_eligible=_bool(classification,"signal_eligible",True),insider_sale=insider_sale)
 
 
 def signal_intelligence_for_asset(db: Session, asset: str, *, now: datetime, max_age: timedelta = timedelta(days=7)) -> SignalIntelligence:
     target=asset.upper().strip()
     rows=list(db.scalars(select(Evidence).where(Evidence.asset==target).order_by(Evidence.observed_at.desc())).all())
-    return aggregate_signal_intelligence(target,(evidence_fact(r) for r in rows),now=now,max_age=max_age)
+    return aggregate_signal_intelligence(target,(evidence_fact(r) for r in rows),now=now.astimezone(timezone.utc),max_age=max_age)
 
 
 def signal_intelligence_watchlist(db: Session, assets: Iterable[str], *, now: datetime, max_age: timedelta = timedelta(days=7)) -> list[dict]:
