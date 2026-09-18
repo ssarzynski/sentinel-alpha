@@ -50,6 +50,11 @@ class SessionStore:
                     FOREIGN KEY(user_id) REFERENCES users(id)
                 )"""
             )
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(auth_sessions)")}
+            if "mfa_verified" not in columns:
+                connection.execute(
+                    "ALTER TABLE auth_sessions ADD COLUMN mfa_verified INTEGER NOT NULL DEFAULT 0"
+                )
 
     @staticmethod
     def _digest(token: str) -> str:
