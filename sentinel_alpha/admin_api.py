@@ -157,3 +157,40 @@ def security_events(
         return AdminDashboardService(accounts, sessions, audit).security_events(actor, limit)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _recovery_action(actor: UserAccount, user_id: int, action: str) -> dict:
+    accounts, sessions, audit = _stores()
+    service = AdminAccountService(accounts, sessions)
+    try:
+        if action == "enable":
+            service.enable(actor, user_id)
+            status = AccountStatus.ACTIVE
+            event = "ACCOUNT_ENABLED"
+        else:
+            service.unlock(actor, user_id)
+            status = AccountStatus.ACTIVE
+            event = "ACCOUNT_UNLOCKED"
+    except (ValueError, LookupError) as exc:
+        audit.append("ACCOUNT_RECOVERY_FAILED", success=False, actor_user_id=actor.user_id, target_user_id=user_id)
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    audit.append(event, success=True, actor_user_id=actor.user_id, target_user_id=user_id)
+    return {"user_id": user_id, "status": status}
+
+
+@router.post("/users/{user_id}/enable")
+def enable(
+    user_id: int,
+    actor: UserAccount = Depends(authenticated_admin),
+    _: None = Depends(require_csrf),
+) -> dict:
+    return _recovery_action(actor, user_id, "enable")
+
+
+@router.post("/users/{user_id}/unlock")
+def unlock(
+    user_id: int,
+    actor: UserAccount = Depends(authenticated_admin),
+    _: None = Depends(require_csrf),
+) -> dict:
+    return _recovery_action(actor, user_id, "unlock")
