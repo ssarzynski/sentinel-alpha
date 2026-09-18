@@ -59,7 +59,7 @@ class AdminMfaStore:
     def generate_recovery_codes(self, account: UserAccount, count: int = 8) -> list[str]:
         if account.role is not Role.ADMIN or not self.enabled(account):
             raise PermissionError("enabled administrator MFA required")
-        codes = [secrets.token_hex(8) for _ in range(count)]
+        codes = [secrets.token_hex(16) for _ in range(count)]
         hashes = [hashlib.sha256(code.encode()).hexdigest() for code in codes]
         with self._connect() as connection:
             connection.execute("DELETE FROM admin_mfa_recovery WHERE user_id=?", (account.user_id,))
@@ -71,21 +71,16 @@ class AdminMfaStore:
         return codes
 
     def verify_recovery_code(self, account: UserAccount, code: str) -> bool:
-        if account.role is not Role.ADMIN:
+        if account.role is not Role.ADMIN or not self.enabled(account):
             return False
         from datetime import datetime, timezone
         digest = hashlib.sha256(code.encode()).hexdigest()
         with self._connect() as connection:
-            row = connection.execute(
-                "SELECT used_at FROM admin_mfa_recovery WHERE user_id=? AND code_hash=?",
-                (account.user_id, digest),
-            ).fetchone()
-            valid = row is not None and row["used_at"] is None
-            if valid:
-                connection.execute(
-                    "UPDATE admin_mfa_recovery SET used_at=? WHERE user_id=? AND code_hash=? AND used_at IS NULL",
-                    (datetime.now(timezone.utc).isoformat(), account.user_id, digest),
-                )
+            cursor = connection.execute(
+                "UPDATE admin_mfa_recovery SET used_at=? WHERE user_id=? AND code_hash=? AND used_at IS NULL",
+                (datetime.now(timezone.utc).isoformat(), account.user_id, digest),
+            )
+            valid = cursor.rowcount == 1
         self.audit.append("MFA_RECOVERY_CHALLENGE", success=valid, actor_user_id=account.user_id)
         return valid
 
@@ -94,6 +89,7 @@ class AdminMfaStore:
             raise PermissionError("administrator role required")
         secret = pyotp.random_base32()
         with self._connect() as connection:
+            connection.execute("DELETE FROM admin_mfa_recovery WHERE user_id=?", (account.user_id,))
             connection.execute(
                 """INSERT INTO admin_mfa(user_id,totp_secret,enabled) VALUES(?,?,0)
                 ON CONFLICT(user_id) DO UPDATE SET totp_secret=excluded.totp_secret,enabled=0""",
