@@ -13,6 +13,8 @@ dependencies = [
     "argon2-cffi>=23.1",
     "pyotp>=2.9",
     "cryptography>=43.0",
+    "sqlalchemy>=2.0,<3",
+    "alembic>=1.13,<2",
 ]
 
 [project.optional-dependencies]
