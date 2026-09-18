@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -15,6 +15,7 @@ from app.services.portfolio_policy_decisions import evaluate_and_record_portfoli
 from app.services.portfolio_risk import portfolio_historical_risk
 from app.services.portfolios import create_portfolio, list_portfolios, owned_portfolio, portfolio_analytics, portfolio_positions, upsert_position
 from app.services.sec_filings import latest_filings, sync_company_filings
+from app.services.signal_intelligence import signal_intelligence_watchlist
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -94,6 +95,13 @@ def evaluate_policy_endpoint(portfolio_key:str,stale_after_minutes:int=Query(def
 @router.get("/portfolios/{portfolio_key}/policy/history")
 def policy_history_endpoint(portfolio_key:str,limit:int=Query(default=50,ge=1,le=200),db:Session=Depends(get_db),user:User=Depends(get_current_user))->list[dict[str,object]]:
     p=_portfolio_or_404(db,user,portfolio_key);return [_decision_payload(r) for r in policy_decision_history(db,p,limit=limit)]
+@router.get("/studio/signals")
+def studio_signal_intelligence(assets:list[str]=Query(...),max_age_hours:int=Query(default=168,ge=1,le=720),db:Session=Depends(get_db),user:User=Depends(get_current_user))->list[dict]:
+    """Authenticated read-only signal intelligence; never authorizes or executes trades."""
+    normalized=[a.upper().strip() for a in assets if a.strip()]
+    if not normalized: raise HTTPException(status_code=422,detail="At least one asset is required")
+    if len(normalized)>100: raise HTTPException(status_code=422,detail="At most 100 assets may be requested")
+    return signal_intelligence_watchlist(db,normalized,now=datetime.now(timezone.utc),max_age=timedelta(hours=max_age_hours))
 @router.post("/sec/sync/{ticker}")
 def sync_sec_filings(ticker:str,db:Session=Depends(get_db),user:User=Depends(get_current_user))->dict[str,int|str]:
     try:return sync_company_filings(db,ticker)
