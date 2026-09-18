@@ -9,6 +9,8 @@ from pydantic import BaseModel
 
 from .auth import AccountStore
 from .auth_service import AuthenticationService
+from .auth import Role
+from .mfa import AdminMfaStore
 from .security_audit import SecurityAuditLog
 from .sessions import SessionStore
 
@@ -89,3 +91,30 @@ def logout(
     response.delete_cookie(SESSION_COOKIE, path="/", secure=True, httponly=True, samesite="strict")
     response.delete_cookie(CSRF_COOKIE, path="/", secure=True, httponly=False, samesite="strict")
     return {"logged_out": True}
+
+
+class MfaChallenge(BaseModel):
+    code: str
+
+
+@router.post("/mfa/verify")
+def verify_mfa(
+    payload: MfaChallenge,
+    session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+    csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
+    csrf_header: str | None = Header(default=None, alias="X-CSRF-Token"),
+) -> dict:
+    require_csrf(csrf_cookie, csrf_header)
+    if not session_token:
+        raise HTTPException(status_code=401, detail="authentication required")
+    auth, sessions = _service()
+    account = sessions.validate(session_token)
+    if account is None:
+        raise HTTPException(status_code=401, detail="authentication required")
+    if account.role is not Role.ADMIN:
+        raise HTTPException(status_code=403, detail="administrator authorization required")
+    mfa = AdminMfaStore(auth.accounts.database, auth.audit)
+    if not mfa.verify(account, payload.code):
+        raise HTTPException(status_code=401, detail="MFA verification failed")
+    sessions.mark_mfa_verified(session_token, account.user_id)
+    return {"mfa_verified": True}
