@@ -185,10 +185,14 @@ def update_password(
     csrf = secrets.token_urlsafe(32)
     _set_auth_cookies(response, new_session.token, csrf)
     auth.audit.append("PASSWORD_CHANGED", success=True, actor_user_id=account.user_id)
+    mfa = AdminMfaStore(auth.accounts.database, auth.audit)
+    mfa_enrolled = refreshed.role is Role.ADMIN and mfa.enabled(refreshed)
     return {
         "password_changed": True,
         "authenticated": True,
         "mfa_required": refreshed.role is Role.ADMIN,
+        "mfa_enrolled": mfa_enrolled,
+        "mfa_setup_required": refreshed.role is Role.ADMIN and not mfa_enrolled,
     }
 
 
