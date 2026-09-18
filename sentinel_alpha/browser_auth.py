@@ -160,7 +160,10 @@ def logout(
         account = sessions.validate(session_token, allow_password_change_only=True)
         if account is not None:
             sessions.revoke_all(account.user_id)
-            auth.audit.append(\n                "LOGOUT", success=True, actor_user_id=account.user_id,\n                request_id=request.state.request_id,\n            )
+            auth.audit.append(
+                "LOGOUT", success=True, actor_user_id=account.user_id,
+                request_id=request.state.request_id,
+            )
     response.delete_cookie(SESSION_COOKIE, path="/", secure=True, httponly=True, samesite="strict")
     response.delete_cookie(CSRF_COOKIE, path="/", secure=True, httponly=False, samesite="strict")
     return {"logged_out": True}
@@ -265,7 +268,10 @@ def verify_mfa_recovery(
     source = security_client_ip(request)
     allowed, retry = _recovery_attempt_allowed(auth, account.user_id, session_token, source)
     if not allowed:
-        auth.audit.append(\n            "MFA_RECOVERY_RATE_LIMITED", success=False, actor_user_id=account.user_id,\n            request_id=request.state.request_id,\n        )
+        auth.audit.append(
+            "MFA_RECOVERY_RATE_LIMITED", success=False, actor_user_id=account.user_id,
+            request_id=request.state.request_id,
+        )
         raise HTTPException(status_code=429, detail="MFA verification failed", headers={"Retry-After": str(retry)})
     mfa = AdminMfaStore(auth.accounts.database, auth.audit)
     if not mfa.enabled(account) or not mfa.verify_recovery_code(account, payload.code.casefold()):
@@ -325,7 +331,10 @@ def update_password(
             new_password=payload.new_password,
         )
     except ValueError as exc:
-        auth.audit.append(\n            "PASSWORD_CHANGE_FAILED", success=False, actor_user_id=account.user_id,\n            request_id=request.state.request_id,\n        )
+        auth.audit.append(
+            "PASSWORD_CHANGE_FAILED", success=False, actor_user_id=account.user_id,
+            request_id=request.state.request_id,
+        )
         raise HTTPException(status_code=400, detail="password change failed") from exc
     refreshed = auth.accounts.authenticate(account.username, payload.new_password)
     if refreshed is None:
@@ -333,7 +342,10 @@ def update_password(
     new_session = sessions.create(refreshed)
     csrf = _csrf_for_session(new_session.token)
     _set_auth_cookies(response, new_session.token, csrf)
-    auth.audit.append(\n        "PASSWORD_CHANGED", success=True, actor_user_id=account.user_id,\n        request_id=request.state.request_id,\n    )
+    auth.audit.append(
+        "PASSWORD_CHANGED", success=True, actor_user_id=account.user_id,
+        request_id=request.state.request_id,
+    )
     mfa = AdminMfaStore(auth.accounts.database, auth.audit)
     mfa_enrolled = refreshed.role is Role.ADMIN and mfa.enabled(refreshed)
     return {
