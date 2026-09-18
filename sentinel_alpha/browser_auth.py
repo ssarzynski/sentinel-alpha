@@ -106,7 +106,7 @@ def login(payload: LoginRequest, request: Request, response: Response) -> dict:
     source = request.client.host if request.client else None
     result = auth.login(
         payload.username, payload.password, source=source,
-        request_id=request.headers.get("X-Request-ID"),
+        request_id=request.state.request_id,
     )
     if result.session is None:
         raise HTTPException(
