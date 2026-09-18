@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 from sqlalchemy import select
 
@@ -16,6 +16,9 @@ from sentinel_alpha.market_adapters import ingest_alpha_vantage_daily
 from sentinel_alpha.market_models import MarketBackfillRun
 from sentinel_alpha.market_warehouse import MarketWarehouse
 from sentinel_alpha.time_utils import as_utc
+
+if TYPE_CHECKING:
+    from sentinel_alpha.resource_metrics import ResourceMetrics
 
 
 @dataclass(frozen=True)
@@ -38,15 +41,9 @@ def _run(warehouse: MarketWarehouse, symbol: str, received: datetime) -> MarketB
     )
     if run is None:
         run = MarketBackfillRun(
-            provider="ALPHA_VANTAGE",
-            symbol=normalized,
-            channel="daily",
-            status="running",
-            processed=0,
-            inserted=0,
-            existing=0,
-            started_at=received,
-            updated_at=received,
+            provider="ALPHA_VANTAGE", symbol=normalized, channel="daily",
+            status="running", processed=0, inserted=0, existing=0,
+            started_at=received, updated_at=received,
         )
         session.add(run)
         session.flush()
@@ -61,8 +58,13 @@ def backfill_alpha_vantage_daily(
     after: datetime | None = None,
     batch_limit: int = 500,
     persist_progress: bool = False,
+    metrics: "ResourceMetrics | None" = None,
 ) -> BackfillResult:
-    """Store one bounded batch, optionally resuming/updating durable progress."""
+    """Store one bounded batch and optionally report compact usage counters.
+
+    Provider acquisition occurs before this function, so provider-call accounting
+    belongs at the acquisition boundary rather than being guessed here.
+    """
     if batch_limit < 1 or batch_limit > 5000:
         raise ValueError("batch_limit must be between 1 and 5000")
     received = as_utc(ingested_at or datetime.now(timezone.utc))
@@ -96,5 +98,11 @@ def backfill_alpha_vantage_daily(
         run.updated_at = received
         run.error_message = None
         warehouse.session.flush()
+
+    if metrics is not None:
+        metrics.record_records(len(candidates))
+        # Count durable canonical rows, not Python object size or derived data.
+        # Byte growth is intentionally left for the storage boundary where it can
+        # be measured accurately rather than estimated here.
 
     return BackfillResult(len(candidates), inserted, existing, checkpoint)
