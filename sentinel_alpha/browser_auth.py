@@ -129,7 +129,7 @@ def logout(
     csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
     csrf_header: str | None = Header(default=None, alias="X-CSRF-Token"),
 ) -> dict:
-    require_csrf(csrf_cookie, csrf_header)
+    require_csrf(csrf_cookie, csrf_header, session_token)
     if session_token:
         auth, sessions = _service()
         account = sessions.validate(session_token, allow_password_change_only=True)
@@ -156,7 +156,7 @@ def verify_mfa_recovery(
     csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
     csrf_header: str | None = Header(default=None, alias="X-CSRF-Token"),
 ) -> dict:
-    require_csrf(csrf_cookie, csrf_header)
+    require_csrf(csrf_cookie, csrf_header, session_token)
     if not session_token:
         raise HTTPException(status_code=401, detail="authentication required")
     auth, sessions = _service()
@@ -177,7 +177,7 @@ def verify_mfa(
     csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
     csrf_header: str | None = Header(default=None, alias="X-CSRF-Token"),
 ) -> dict:
-    require_csrf(csrf_cookie, csrf_header)
+    require_csrf(csrf_cookie, csrf_header, session_token)
     if not session_token:
         raise HTTPException(status_code=401, detail="authentication required")
     auth, sessions = _service()
@@ -201,7 +201,7 @@ def update_password(
     csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
     csrf_header: str | None = Header(default=None, alias="X-CSRF-Token"),
 ) -> dict:
-    require_csrf(csrf_cookie, csrf_header)
+    require_csrf(csrf_cookie, csrf_header, session_token)
     if not session_token:
         raise HTTPException(status_code=401, detail="authentication required")
     if len(payload.new_password) < 12 or len(payload.new_password) > 1024:
@@ -257,7 +257,7 @@ def enroll_mfa(
     csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
     csrf_header: str | None = Header(default=None, alias="X-CSRF-Token"),
 ) -> dict:
-    require_csrf(csrf_cookie, csrf_header)
+    require_csrf(csrf_cookie, csrf_header, session_token)
     auth, sessions, account = _admin_for_mfa(session_token)
     mfa = AdminMfaStore(auth.accounts.database, auth.audit)
     if mfa.enabled(account):
@@ -280,7 +280,7 @@ def generate_mfa_recovery_codes(
     csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
     csrf_header: str | None = Header(default=None, alias="X-CSRF-Token"),
 ) -> dict:
-    require_csrf(csrf_cookie, csrf_header)
+    require_csrf(csrf_cookie, csrf_header, session_token)
     auth, sessions, account = _admin_for_mfa(session_token)
     if not sessions.mfa_verified(session_token):
         raise HTTPException(status_code=403, detail="administrator MFA verification required")
@@ -295,7 +295,7 @@ def confirm_mfa(
     csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
     csrf_header: str | None = Header(default=None, alias="X-CSRF-Token"),
 ) -> dict:
-    require_csrf(csrf_cookie, csrf_header)
+    require_csrf(csrf_cookie, csrf_header, session_token)
     auth, sessions, account = _admin_for_mfa(session_token)
     mfa = AdminMfaStore(auth.accounts.database, auth.audit)
     if not mfa.confirm_enrollment(account, payload.code):
