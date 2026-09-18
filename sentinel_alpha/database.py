@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
+from contextlib import contextmanager
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
@@ -38,6 +39,7 @@ def session_factory(engine: Engine):
     return sessionmaker(bind=engine, class_=Session, expire_on_commit=False)
 
 
+@contextmanager
 def session_scope(engine: Engine) -> Iterator[Session]:
     """Yield a transaction-scoped session and roll back on any exception."""
     factory = session_factory(engine)
