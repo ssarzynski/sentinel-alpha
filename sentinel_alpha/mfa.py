@@ -1,6 +1,8 @@
 """Mandatory TOTP second factor for administrator accounts."""
 
+import hashlib
 import os
+import secrets
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,6 +47,47 @@ class AdminMfaStore:
                     enabled INTEGER NOT NULL DEFAULT 0
                 )"""
             )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS admin_mfa_recovery (
+                    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    code_hash TEXT NOT NULL,
+                    used_at TEXT,
+                    PRIMARY KEY(user_id, code_hash)
+                )"""
+            )
+
+    def generate_recovery_codes(self, account: UserAccount, count: int = 8) -> list[str]:
+        if account.role is not Role.ADMIN or not self.enabled(account):
+            raise PermissionError("enabled administrator MFA required")
+        codes = [secrets.token_hex(8) for _ in range(count)]
+        hashes = [hashlib.sha256(code.encode()).hexdigest() for code in codes]
+        with self._connect() as connection:
+            connection.execute("DELETE FROM admin_mfa_recovery WHERE user_id=?", (account.user_id,))
+            connection.executemany(
+                "INSERT INTO admin_mfa_recovery(user_id,code_hash) VALUES(?,?)",
+                [(account.user_id, value) for value in hashes],
+            )
+        self.audit.append("MFA_RECOVERY_CODES_GENERATED", success=True, actor_user_id=account.user_id)
+        return codes
+
+    def verify_recovery_code(self, account: UserAccount, code: str) -> bool:
+        if account.role is not Role.ADMIN:
+            return False
+        from datetime import datetime, timezone
+        digest = hashlib.sha256(code.encode()).hexdigest()
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT used_at FROM admin_mfa_recovery WHERE user_id=? AND code_hash=?",
+                (account.user_id, digest),
+            ).fetchone()
+            valid = row is not None and row["used_at"] is None
+            if valid:
+                connection.execute(
+                    "UPDATE admin_mfa_recovery SET used_at=? WHERE user_id=? AND code_hash=? AND used_at IS NULL",
+                    (datetime.now(timezone.utc).isoformat(), account.user_id, digest),
+                )
+        self.audit.append("MFA_RECOVERY_CHALLENGE", success=valid, actor_user_id=account.user_id)
+        return valid
 
     def begin_enrollment(self, account: UserAccount) -> MfaEnrollment:
         if account.role is not Role.ADMIN:
