@@ -95,3 +95,23 @@ class AdminAccountService:
                 (role.value, now, target_user_id),
             )
         self.sessions.revoke_all(target_user_id)
+
+    def enable(self, actor: UserAccount, target_user_id: int) -> None:
+        require_admin(actor)
+        with self.accounts._connect() as connection:
+            row = connection.execute("SELECT status FROM users WHERE id=?", (target_user_id,)).fetchone()
+        if row is None:
+            raise LookupError("target user not found")
+        if row["status"] != AccountStatus.DISABLED.value:
+            raise ValueError("only disabled accounts can be enabled")
+        self.set_status(actor, target_user_id, AccountStatus.ACTIVE)
+
+    def unlock(self, actor: UserAccount, target_user_id: int) -> None:
+        require_admin(actor)
+        with self.accounts._connect() as connection:
+            row = connection.execute("SELECT status FROM users WHERE id=?", (target_user_id,)).fetchone()
+        if row is None:
+            raise LookupError("target user not found")
+        if row["status"] != AccountStatus.LOCKED.value:
+            raise ValueError("only locked accounts can be unlocked")
+        self.set_status(actor, target_user_id, AccountStatus.ACTIVE)
