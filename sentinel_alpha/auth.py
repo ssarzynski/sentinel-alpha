@@ -42,6 +42,8 @@ def normalize_username(username: str) -> str:
 
 
 _PASSWORD_HASHER = PasswordHasher()
+# A fixed valid hash makes unknown-user login perform comparable Argon2 work.
+_DUMMY_PASSWORD_HASH = _PASSWORD_HASHER.hash("sentinel-dummy-password-never-used")
 
 
 def hash_password(password: str) -> str:
@@ -129,7 +131,10 @@ class AccountStore:
             return None
         with self._connect() as connection:
             row = connection.execute("SELECT * FROM users WHERE username=?", (normalized,)).fetchone()
-            if row is None or not verify_password(password, row["password_hash"]):
+            if row is None:
+                verify_password(password, _DUMMY_PASSWORD_HASH)
+                return None
+            if not verify_password(password, row["password_hash"]):
                 if row is not None:
                     connection.execute(
                         "UPDATE users SET failed_login_count=failed_login_count+1 WHERE id=?",
