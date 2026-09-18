@@ -17,7 +17,7 @@ from .sessions import SessionStore, change_password
 
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
 SESSION_COOKIE = "__Host-sentinel_session"
-CSRF_COOKIE = "__Host-sentinel_csrf"
+CSRF_COOKIE = "__Host-sentinel_csrf"\nBROWSER_SESSION_MAX_AGE = 12 * 60 * 60
 
 
 class LoginRequest(BaseModel):
@@ -56,10 +56,10 @@ def _csrf_matches_session(token: str, csrf: str) -> bool:
 
 def _set_auth_cookies(response: Response, token: str, csrf: str) -> None:
     response.set_cookie(
-        SESSION_COOKIE, token, secure=True, httponly=True, samesite="strict", path="/"
+        SESSION_COOKIE, token, secure=True, httponly=True, samesite="strict", path="/", max_age=BROWSER_SESSION_MAX_AGE
     )
     response.set_cookie(
-        CSRF_COOKIE, csrf, secure=True, httponly=False, samesite="strict", path="/"
+        CSRF_COOKIE, csrf, secure=True, httponly=False, samesite="strict", path="/", max_age=BROWSER_SESSION_MAX_AGE
     )
 
 
