@@ -12,7 +12,7 @@ from .auth_service import AuthenticationService
 from .auth import Role
 from .mfa import AdminMfaStore
 from .security_audit import SecurityAuditLog
-from .sessions import SessionStore
+from .sessions import SessionStore, change_password
 
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
 SESSION_COOKIE = "__Host-sentinel_session"
@@ -22,6 +22,11 @@ CSRF_COOKIE = "__Host-sentinel_csrf"
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 
 def _service() -> tuple[AuthenticationService, SessionStore]:
@@ -118,3 +123,45 @@ def verify_mfa(
         raise HTTPException(status_code=401, detail="MFA verification failed")
     sessions.mark_mfa_verified(session_token, account.user_id)
     return {"mfa_verified": True}
+
+
+@router.post("/password")
+def update_password(
+    payload: PasswordChangeRequest,
+    response: Response,
+    session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE),
+    csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
+    csrf_header: str | None = Header(default=None, alias="X-CSRF-Token"),
+) -> dict:
+    require_csrf(csrf_cookie, csrf_header)
+    if not session_token:
+        raise HTTPException(status_code=401, detail="authentication required")
+    if len(payload.new_password) < 12 or len(payload.new_password) > 1024:
+        raise HTTPException(status_code=422, detail="new password must be 12 to 1024 characters")
+    if payload.current_password == payload.new_password:
+        raise HTTPException(status_code=422, detail="new password must differ from current password")
+    auth, sessions = _service()
+    account = sessions.validate(session_token, allow_password_change_only=True)
+    if account is None:
+        raise HTTPException(status_code=401, detail="authentication required")
+    try:
+        change_password(
+            auth.accounts, sessions, account=account,
+            current_password=payload.current_password,
+            new_password=payload.new_password,
+        )
+    except ValueError as exc:
+        auth.audit.append("PASSWORD_CHANGE_FAILED", success=False, actor_user_id=account.user_id)
+        raise HTTPException(status_code=400, detail="password change failed") from exc
+    refreshed = auth.accounts.authenticate(account.username, payload.new_password)
+    if refreshed is None:
+        raise HTTPException(status_code=500, detail="password change could not establish a new session")
+    new_session = sessions.create(refreshed)
+    csrf = secrets.token_urlsafe(32)
+    _set_auth_cookies(response, new_session.token, csrf)
+    auth.audit.append("PASSWORD_CHANGED", success=True, actor_user_id=account.user_id)
+    return {
+        "password_changed": True,
+        "authenticated": True,
+        "mfa_required": refreshed.role is Role.ADMIN,
+    }
