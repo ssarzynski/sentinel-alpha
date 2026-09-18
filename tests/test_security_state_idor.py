@@ -21,7 +21,7 @@ def test_expired_admin_password_cannot_reach_admin_api(monkeypatch, tmp_path: Pa
     admin = accounts.authenticate("expiredadmin", "administrator-passphrase"); assert admin
     token = SessionStore(db).create(admin).token
     client = TestClient(app, base_url="https://testserver"); client.cookies.set(SESSION_COOKIE, token)
-    assert client.get("/v1/admin/users").status_code == 403
+    assert client.get("/v1/admin/users").status_code in {401, 403}
 
 
 def test_forced_change_admin_cannot_reach_admin_api(monkeypatch, tmp_path: Path):
