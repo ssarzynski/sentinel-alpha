@@ -37,6 +37,22 @@ def _service() -> tuple[AuthenticationService, SessionStore]:
     return AuthenticationService(accounts, sessions, audit), sessions
 
 
+def _csrf_for_session(token: str) -> str:
+    """Bind the browser-visible CSRF value to the opaque server session token."""
+    nonce = secrets.token_urlsafe(24)
+    binding = hashlib.sha256(f"{token}:{nonce}".encode("utf-8")).hexdigest()
+    return f"{nonce}.{binding}"
+
+
+def _csrf_matches_session(token: str, csrf: str) -> bool:
+    try:
+        nonce, supplied = csrf.split(".", 1)
+    except ValueError:
+        return False
+    expected = hashlib.sha256(f"{token}:{nonce}".encode("utf-8")).hexdigest()
+    return secrets.compare_digest(expected, supplied)
+
+
 def _set_auth_cookies(response: Response, token: str, csrf: str) -> None:
     response.set_cookie(
         SESSION_COOKIE, token, secure=True, httponly=True, samesite="strict", path="/"
@@ -72,10 +88,13 @@ def require_trusted_origin(request: Request) -> None:
 def require_csrf(
     csrf_cookie: str | None = Cookie(default=None, alias=CSRF_COOKIE),
     csrf_header: str | None = Header(default=None, alias="X-CSRF-Token"),
+    session_token: str | None = Cookie(default=None, alias=SESSION_COOKIE),
 ) -> None:
     if not csrf_cookie or not csrf_header:
         raise HTTPException(status_code=403, detail="CSRF validation failed")
     if not secrets.compare_digest(csrf_cookie, csrf_header):
+        raise HTTPException(status_code=403, detail="CSRF validation failed")
+    if not session_token or not _csrf_matches_session(session_token, csrf_cookie):
         raise HTTPException(status_code=403, detail="CSRF validation failed")
 
 
@@ -95,7 +114,7 @@ def login(payload: LoginRequest, request: Request, response: Response) -> dict:
             headers={"Retry-After": str(result.retry_after_seconds)}
             if result.retry_after_seconds else None,
         )
-    csrf = secrets.token_urlsafe(32)
+    csrf = _csrf_for_session(result.session.token)
     _set_auth_cookies(response, result.session.token, csrf)
     return {
         "authenticated": True,
@@ -206,7 +225,7 @@ def update_password(
     if refreshed is None:
         raise HTTPException(status_code=500, detail="password change could not establish a new session")
     new_session = sessions.create(refreshed)
-    csrf = secrets.token_urlsafe(32)
+    csrf = _csrf_for_session(new_session.token)
     _set_auth_cookies(response, new_session.token, csrf)
     auth.audit.append("PASSWORD_CHANGED", success=True, actor_user_id=account.user_id)
     mfa = AdminMfaStore(auth.accounts.database, auth.audit)
