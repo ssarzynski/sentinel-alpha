@@ -46,9 +46,10 @@ def check(base_url: str) -> list[tuple[str, bool, str]]:
     return checks
 
 
-def evidence(results: list[tuple[str, bool, str]], base_url: str, commit: str) -> dict:
+def evidence(results: list[tuple[str, bool, str]], base_url: str, commit: str, drill_id: str = "") -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
+        "drill_id": drill_id,
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "base_url": base_url,
         "commit": commit,
@@ -68,9 +69,10 @@ def main() -> int:
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
     parser.add_argument("--commit", required=True)
     parser.add_argument("--evidence-file", required=True)
+    parser.add_argument("--drill-id", required=True)
     args = parser.parse_args()
     results = check(args.base_url)
-    record = evidence(results, args.base_url, args.commit)
+    record = evidence(results, args.base_url, args.commit, args.drill_id)
     destination = Path(args.evidence_file)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
