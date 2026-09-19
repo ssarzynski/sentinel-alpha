@@ -87,6 +87,7 @@ class PaperOperationLedger:
         created_at = datetime.now(timezone.utc).isoformat()
         snapshot = json.dumps(asdict(result), default=str, sort_keys=True, separators=(",", ":"))
         lifecycle_event_id = None
+        lifecycle_ledger = PaperLedger(self.database) if lifecycle_action else None
 
         # Lifecycle event and decision are committed as one SQLite transaction.
         # Any failure rolls both writes back, preventing orphan paper events.
@@ -94,7 +95,7 @@ class PaperOperationLedger:
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("BEGIN IMMEDIATE")
             if lifecycle_action:
-                lifecycle_event_id = PaperLedger(self.database).append_with_connection(
+                lifecycle_event_id = lifecycle_ledger.append_with_connection(
                     connection,
                     evaluation_id=evaluation_id,
                     asset=result.signal.asset,
