@@ -70,9 +70,10 @@ def check(base_url: str) -> list[tuple[str, bool, str]]:
     return results
 
 
-def evidence(results: list[tuple[str, bool, str]], base_url: str, commit: str = "") -> dict:
+def evidence(results: list[tuple[str, bool, str]], base_url: str, commit: str = "", drill_id: str = "") -> dict:
     return {
-        "schema_version": 1,
+        "schema_version": 2,
+        "drill_id": drill_id,
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "base_url": base_url,
         "commit": commit,
@@ -102,9 +103,10 @@ def main() -> int:
         help="Optional JSON output path outside the repository for staging evidence.",
     )
     parser.add_argument("--commit", default="", help="Exact approved commit SHA under test.")
+    parser.add_argument("--drill-id", default="", help="Correlation ID shared across one recovery drill.")
     args = parser.parse_args()
     results = check(args.base_url)
-    record = evidence(results, args.base_url, args.commit)
+    record = evidence(results, args.base_url, args.commit, args.drill_id)
     for name, passed, detail in results:
         print(f"{'PASS' if passed else 'FAIL'} {name}: {detail}")
     if args.evidence_file:
