@@ -60,13 +60,18 @@ def test_blocked_evaluation_cannot_be_paper_entry(tmp_path):
 
 
 def test_approved_unblocked_paper_entry_is_recorded(tmp_path):
-    ledger = PaperOperationLedger(tmp_path / "paper.db")
+    database = tmp_path / "paper.db"
+    result = evaluation()
+    evaluation_id = EvaluationJournal(database).append(result)
+    ledger = PaperOperationLedger(database)
     paper_id = ledger.record(
-        evaluation_id="eval-1",
-        result=evaluation(),
+        evaluation_id=evaluation_id,
+        result=result,
         approved_by_human=True,
         hypothetical_action="paper_entry",
         notes="hypothetical only",
+        price=100.0,
+        quantity=1.0,
     )
     rows = ledger.recent()
     assert rows[0].paper_id == paper_id
@@ -143,6 +148,7 @@ def test_lifecycle_exit_cannot_exceed_open_paper_position(tmp_path):
 
 def test_lifecycle_event_requires_real_matching_evaluation(tmp_path):
     database = tmp_path / "paper.db"
+    EvaluationJournal(database)
     ledger = PaperOperationLedger(database)
     with pytest.raises(ValueError, match="existing evaluation"):
         ledger.record(
