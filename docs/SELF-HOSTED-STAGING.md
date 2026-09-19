@@ -60,10 +60,10 @@ Before any public exposure:
    - automatic trading disabled.
 5. Complete administrator login and MFA.
 6. Verify browser session expiry/revocation behavior and CSRF-protected mutations.
-7. Verify the dashboard loads and the audit chain reports valid.
+7. Verify the dashboard loads and both the audit chain and paper ledger report valid.
 8. Create only test/paper data. Confirm no brokerage or execution action exists.
 
-A failed item stops promotion.\n\nRun `scripts/staging_acceptance.py` with `--commit <approved-sha>` and `--evidence-file <private-path>/acceptance.json` to retain a machine-readable record. Store the evidence outside the repository with restricted access; it may contain host and topology metadata. A failed run is still evidence and should be retained for diagnosis rather than rewritten as PASS.
+A failed item stops promotion.\n\nThe automated acceptance gate requires both `audit_chain_valid=true` and `paper_ledger_valid=true`; either integrity failure stops promotion.\n\nRun `scripts/staging_acceptance.py` with `--commit <approved-sha>` and `--evidence-file <private-path>/acceptance.json` to retain a machine-readable record. Store the evidence outside the repository with restricted access; it may contain host and topology metadata. A failed run is still evidence and should be retained for diagnosis rather than rewritten as PASS.
 
 ## Backup/restore drill
 
