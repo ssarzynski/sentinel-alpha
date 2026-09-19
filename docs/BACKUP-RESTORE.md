@@ -17,7 +17,7 @@ Sentinel Alpha uses SQLite for the launch architecture. Backups must be created 
 3. The source backup is integrity-checked before restore and the restored database is checked again.
 4. Start a disposable/staging Sentinel Alpha instance against the restored database.
 5. Verify authentication, security audit integrity, signal/journal reads, and paper-ledger reads before considering the backup recoverable.
-6. Run `scripts/backup_restore_drill.py` with distinct source, backup, restored, and private evidence paths to automate the non-destructive SQLite integrity and row-count preservation checks.\n7. Store its JSON evidence outside the repository with restricted access. A failed drill remains evidence and must not be rewritten as PASS.\n8. The script verifies database integrity and table row-count preservation only. Authentication, audit-chain, journal, dashboard, and paper-history behavior must still be exercised against the restored staging instance before the recovery launch blocker can be marked PASS. After starting the disposable restored instance, run `scripts/verify_restored_instance.py --base-url <private-url> --commit <approved-sha> --evidence-file <private-path>/restored-instance.json`. The verifier performs GET-only application checks and requires valid audit and paper-ledger integrity plus disabled automatic trading and required human approval. Store its evidence outside the repository.
+6. Choose a unique non-secret recovery `drill_id`, then run `scripts/backup_restore_drill.py` with the same `--drill-id`, exact `--commit`, and distinct source, backup, restored, and private evidence paths to automate the non-destructive SQLite integrity and row-count preservation checks.\n7. Store its JSON evidence outside the repository with restricted access. A failed drill remains evidence and must not be rewritten as PASS.\n8. The script verifies database integrity and table row-count preservation only. Authentication, audit-chain, journal, dashboard, and paper-history behavior must still be exercised against the restored staging instance before the recovery launch blocker can be marked PASS. After starting the disposable restored instance, run `scripts/verify_restored_instance.py --base-url <private-url> --commit <approved-sha> --drill-id <same-id> --evidence-file <private-path>/restored-instance.json`. The verifier performs GET-only application checks and requires valid audit and paper-ledger integrity plus disabled automatic trading and required human approval. Store its evidence outside the repository.
 
 ## Production cutover
 
@@ -26,3 +26,8 @@ A production restore requires explicit operator approval. Stop application write
 ## Security
 
 Backups contain authentication hashes, encrypted MFA material, audit history, and market research data. Treat them as sensitive. Restrict filesystem permissions, encrypt backup storage at the infrastructure layer, and never place backups or encryption keys in source control.
+
+
+## Evidence correlation
+
+Use one non-secret `drill_id` and exact commit SHA across backup/restore, restored-instance verification, and staging acceptance evidence. Backup drill evidence also records SHA-256 digests of the verified backup and restored database so operators can tie evidence to exact recovery artifacts without relying on filenames. Store all evidence and database artifacts privately; hashes are integrity identifiers, not encryption.
