@@ -1,7 +1,13 @@
-import json
+import importlib.util
+from pathlib import Path
 from unittest.mock import patch
 
-from scripts.staging_acceptance import check
+_MODULE_PATH = Path(__file__).parents[1] / "scripts" / "staging_acceptance.py"
+_SPEC = importlib.util.spec_from_file_location("staging_acceptance", _MODULE_PATH)
+assert _SPEC is not None and _SPEC.loader is not None
+_MODULE = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_MODULE)
+check = _MODULE.check
 
 
 def test_acceptance_checker_requires_safety_invariants():
@@ -32,7 +38,7 @@ def test_acceptance_checker_requires_safety_invariants():
     def fake_fetch(_base_url, path):
         return responses[path]
 
-    with patch("scripts.staging_acceptance.fetch_json", side_effect=fake_fetch):
+    with patch.object(_MODULE, "fetch_json", side_effect=fake_fetch):
         results = check("http://127.0.0.1:8000")
     assert results
     assert all(item[1] for item in results)
@@ -66,7 +72,7 @@ def test_acceptance_checker_fails_if_automatic_trading_is_reported_enabled():
     def fake_fetch(_base_url, path):
         return responses[path]
 
-    with patch("scripts.staging_acceptance.fetch_json", side_effect=fake_fetch):
+    with patch.object(_MODULE, "fetch_json", side_effect=fake_fetch):
         results = check("http://127.0.0.1:8000")
     by_name = {name: passed for name, passed, _ in results}
     assert by_name["financial_safety_rules"] is False
