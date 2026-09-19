@@ -88,18 +88,20 @@ class PaperOperationLedger:
         snapshot = json.dumps(asdict(result), default=str, sort_keys=True, separators=(",", ":"))
         lifecycle_event_id = None
 
-        # The integrity ledger validates that the referenced evaluation exists,
-        # matches the asset, has valid quantities/prices, and cannot oversell.
-        if lifecycle_action:
-            lifecycle_event_id = PaperLedger(self.database).append(
-                evaluation_id=evaluation_id,
-                asset=result.signal.asset,
-                action=lifecycle_action,
-                price=price,
-                quantity=quantity,
-            )
-
+        # Lifecycle event and decision are committed as one SQLite transaction.
+        # Any failure rolls both writes back, preventing orphan paper events.
         with self._connect() as connection:
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute("BEGIN IMMEDIATE")
+            if lifecycle_action:
+                lifecycle_event_id = PaperLedger(self.database).append_with_connection(
+                    connection,
+                    evaluation_id=evaluation_id,
+                    asset=result.signal.asset,
+                    action=lifecycle_action,
+                    price=price,
+                    quantity=quantity,
+                )
             connection.execute(
                 """INSERT INTO paper_decisions
                 (paper_id, evaluation_id, asset, created_at, approved_by_human,
