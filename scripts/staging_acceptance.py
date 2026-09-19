@@ -6,7 +6,10 @@ the local HTTP service and reports PASS/FAIL without enabling providers or execu
 
 import argparse
 import json
+import platform
 import sys
+from datetime import datetime, timezone
+from pathlib import Path
 import urllib.error
 import urllib.request
 
@@ -66,14 +69,47 @@ def check(base_url: str) -> list[tuple[str, bool, str]]:
     return results
 
 
+def evidence(results: list[tuple[str, bool, str]], base_url: str, commit: str = "") -> dict:
+    return {
+        "schema_version": 1,
+        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "base_url": base_url,
+        "commit": commit,
+        "host": platform.node(),
+        "python": platform.python_version(),
+        "checks": [
+            {"name": name, "passed": passed, "detail": detail}
+            for name, passed, detail in results
+        ],
+        "passed": bool(results) and all(item[1] for item in results),
+    }
+
+
+def write_evidence(path: str, record: dict) -> None:
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(
+        json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
+    parser.add_argument(
+        "--evidence-file",
+        help="Optional JSON output path outside the repository for staging evidence.",
+    )
+    parser.add_argument("--commit", default="", help="Exact approved commit SHA under test.")
     args = parser.parse_args()
     results = check(args.base_url)
+    record = evidence(results, args.base_url, args.commit)
     for name, passed, detail in results:
         print(f"{'PASS' if passed else 'FAIL'} {name}: {detail}")
-    return 0 if results and all(item[1] for item in results) else 1
+    if args.evidence_file:
+        write_evidence(args.evidence_file, record)
+        print(f"EVIDENCE {args.evidence_file}")
+    return 0 if record["passed"] else 1
 
 
 if __name__ == "__main__":
