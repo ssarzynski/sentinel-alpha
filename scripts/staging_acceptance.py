@@ -62,6 +62,7 @@ def check(base_url: str) -> list[tuple[str, bool, str]]:
             and summary.get("automatic_trading") is False
             and summary.get("human_approval_required") is True
             and summary.get("audit_chain_valid") is True
+            and summary.get("paper_ledger_valid") is True
         )
         results.append(("dashboard_safety", ok, f"HTTP {status}"))
     except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
