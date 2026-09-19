@@ -17,7 +17,7 @@ Sentinel Alpha uses SQLite for the launch architecture. Backups must be created 
 3. The source backup is integrity-checked before restore and the restored database is checked again.
 4. Start a disposable/staging Sentinel Alpha instance against the restored database.
 5. Verify authentication, security audit integrity, signal/journal reads, and paper-ledger reads before considering the backup recoverable.
-6. Record the drill date and result in operational records.
+6. Run `scripts/backup_restore_drill.py` with distinct source, backup, restored, and private evidence paths to automate the non-destructive SQLite integrity and row-count preservation checks.\n7. Store its JSON evidence outside the repository with restricted access. A failed drill remains evidence and must not be rewritten as PASS.\n8. The script verifies database integrity and table row-count preservation only. Authentication, audit-chain, journal, dashboard, and paper-history behavior must still be exercised against the restored staging instance before the recovery launch blocker can be marked PASS.
 
 ## Production cutover
 
