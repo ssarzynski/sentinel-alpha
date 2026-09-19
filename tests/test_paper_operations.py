@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import sqlite3
 
 import pytest
 
@@ -159,3 +160,32 @@ def test_lifecycle_event_requires_real_matching_evaluation(tmp_path):
             price=100.0,
             quantity=1.0,
         )
+
+
+def test_lifecycle_event_rolls_back_if_decision_insert_fails(tmp_path):
+    database = tmp_path / "paper.db"
+    result = evaluation()
+    evaluation_id = EvaluationJournal(database).append(result)
+    ledger = PaperOperationLedger(database)
+
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """CREATE TRIGGER reject_paper_decision
+               BEFORE INSERT ON paper_decisions
+               BEGIN SELECT RAISE(ABORT, 'forced decision failure'); END"""
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="forced decision failure"):
+        ledger.record(
+            evaluation_id=evaluation_id,
+            result=result,
+            approved_by_human=True,
+            hypothetical_action="paper_entry",
+            price=100.0,
+            quantity=1.0,
+        )
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM paper_events").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM paper_decisions").fetchone()[0] == 0
+    assert ledger.verify_integrity() is True

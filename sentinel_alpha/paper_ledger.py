@@ -43,6 +43,27 @@ class PaperLedger:
         return connection
 
     def append(self, *, evaluation_id: str, asset: str, action: str, price: float, quantity: float) -> str:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            return self.append_with_connection(
+                connection,
+                evaluation_id=evaluation_id,
+                asset=asset,
+                action=action,
+                price=price,
+                quantity=quantity,
+            )
+
+    def append_with_connection(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        evaluation_id: str,
+        asset: str,
+        action: str,
+        price: float,
+        quantity: float,
+    ) -> str:
         asset = asset.strip().upper()
         action = action.strip().upper()
         if not asset:
@@ -53,24 +74,22 @@ class PaperLedger:
             raise ValueError("price and quantity must be finite and greater than zero")
         event_id = str(uuid4())
         created_at = datetime.now(timezone.utc).isoformat()
-        with self._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            evaluation = connection.execute("SELECT asset FROM evaluations WHERE evaluation_id = ?", (evaluation_id,)).fetchone()
-            if evaluation is None:
-                raise ValueError("paper event requires an existing evaluation")
-            if evaluation["asset"].upper() != asset:
-                raise ValueError("paper event asset must match its evaluation")
-            if action == "EXIT":
-                balance = connection.execute(
+        evaluation = connection.execute("SELECT asset FROM evaluations WHERE evaluation_id = ?", (evaluation_id,)).fetchone()
+        if evaluation is None:
+            raise ValueError("paper event requires an existing evaluation")
+        if evaluation["asset"].upper() != asset:
+            raise ValueError("paper event asset must match its evaluation")
+        if action == "EXIT":
+            balance = connection.execute(
                     """SELECT COALESCE(SUM(CASE action WHEN 'ENTRY' THEN quantity ELSE -quantity END),0)
                        FROM paper_events WHERE asset = ?""", (asset,)
                 ).fetchone()[0]
-                if quantity > balance:
-                    raise ValueError("paper exit quantity exceeds open paper position")
-            previous = connection.execute("SELECT entry_hash FROM paper_events ORDER BY sequence DESC LIMIT 1").fetchone()
-            previous_hash = previous["entry_hash"] if previous else GENESIS_HASH
-            entry_hash = _hash(previous_hash, event_id, created_at, asset, action, price, quantity, evaluation_id)
-            connection.execute("""INSERT INTO paper_events
+            if quantity > balance:
+                raise ValueError("paper exit quantity exceeds open paper position")
+        previous = connection.execute("SELECT entry_hash FROM paper_events ORDER BY sequence DESC LIMIT 1").fetchone()
+        previous_hash = previous["entry_hash"] if previous else GENESIS_HASH
+        entry_hash = _hash(previous_hash, event_id, created_at, asset, action, price, quantity, evaluation_id)
+        connection.execute("""INSERT INTO paper_events
                 (event_id,created_at,asset,action,price,quantity,evaluation_id,previous_hash,entry_hash)
                 VALUES (?,?,?,?,?,?,?,?,?)""",
                 (event_id,created_at,asset,action,price,quantity,evaluation_id,previous_hash,entry_hash))
