@@ -63,7 +63,7 @@ Before any public exposure:
 7. Verify the dashboard loads and the audit chain reports valid.
 8. Create only test/paper data. Confirm no brokerage or execution action exists.
 
-A failed item stops promotion.
+A failed item stops promotion.\n\nRun `scripts/staging_acceptance.py` with `--commit <approved-sha>` and `--evidence-file <private-path>/acceptance.json` to retain a machine-readable record. Store the evidence outside the repository with restricted access; it may contain host and topology metadata. A failed run is still evidence and should be retained for diagnosis rather than rewritten as PASS.
 
 ## Backup/restore drill
 
