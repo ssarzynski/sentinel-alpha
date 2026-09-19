@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 import pytest
 
 from sentinel_alpha.evidence_roles import ClassifiedEvidence, EvidenceRole
+from sentinel_alpha.journal import EvaluationJournal
 from sentinel_alpha.paper_operations import PaperOperationLedger
 from sentinel_alpha.pipeline import evaluate_records
 from sentinel_alpha.provenance import SourceIdentity, normalize_record
@@ -59,13 +60,18 @@ def test_blocked_evaluation_cannot_be_paper_entry(tmp_path):
 
 
 def test_approved_unblocked_paper_entry_is_recorded(tmp_path):
-    ledger = PaperOperationLedger(tmp_path / "paper.db")
+    database = tmp_path / "paper.db"
+    result = evaluation()
+    evaluation_id = EvaluationJournal(database).append(result)
+    ledger = PaperOperationLedger(database)
     paper_id = ledger.record(
-        evaluation_id="eval-1",
-        result=evaluation(),
+        evaluation_id=evaluation_id,
+        result=result,
         approved_by_human=True,
         hypothetical_action="paper_entry",
         notes="hypothetical only",
+        price=100.0,
+        quantity=1.0,
     )
     rows = ledger.recent()
     assert rows[0].paper_id == paper_id
@@ -92,4 +98,64 @@ def test_unsupported_action_fails_closed(tmp_path):
             result=evaluation(),
             approved_by_human=True,
             hypothetical_action="buy",
+        )
+
+
+def test_lifecycle_entry_uses_authoritative_integrity_ledger(tmp_path):
+    database = tmp_path / "paper.db"
+    result = evaluation()
+    evaluation_id = EvaluationJournal(database).append(result)
+    ledger = PaperOperationLedger(database)
+    paper_id = ledger.record(
+        evaluation_id=evaluation_id,
+        result=result,
+        approved_by_human=True,
+        hypothetical_action="paper_entry",
+        price=100.0,
+        quantity=2.0,
+    )
+    decision = ledger.recent()[0]
+    assert decision.paper_id == paper_id
+    assert decision.lifecycle_event_id is not None
+    assert ledger.verify_integrity() is True
+
+
+def test_lifecycle_exit_cannot_exceed_open_paper_position(tmp_path):
+    database = tmp_path / "paper.db"
+    result = evaluation()
+    journal = EvaluationJournal(database)
+    evaluation_id = journal.append(result)
+    ledger = PaperOperationLedger(database)
+    ledger.record(
+        evaluation_id=evaluation_id,
+        result=result,
+        approved_by_human=True,
+        hypothetical_action="paper_entry",
+        price=100.0,
+        quantity=1.0,
+    )
+    exit_evaluation_id = journal.append(result)
+    with pytest.raises(ValueError, match="exceeds open paper position"):
+        ledger.record(
+            evaluation_id=exit_evaluation_id,
+            result=result,
+            approved_by_human=True,
+            hypothetical_action="paper_exit",
+            price=110.0,
+            quantity=2.0,
+        )
+
+
+def test_lifecycle_event_requires_real_matching_evaluation(tmp_path):
+    database = tmp_path / "paper.db"
+    EvaluationJournal(database)
+    ledger = PaperOperationLedger(database)
+    with pytest.raises(ValueError, match="existing evaluation"):
+        ledger.record(
+            evaluation_id="missing",
+            result=evaluation(),
+            approved_by_human=True,
+            hypothetical_action="paper_entry",
+            price=100.0,
+            quantity=1.0,
         )
