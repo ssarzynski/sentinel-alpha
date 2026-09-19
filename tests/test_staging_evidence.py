@@ -16,7 +16,8 @@ def test_evidence_record_is_machine_readable_and_preserves_failures():
         MODULE.platform, "python_version", return_value="3.12.0"
     ):
         record = MODULE.evidence(results, "http://127.0.0.1:8000", "abc123")
-    assert record["schema_version"] == 1
+    assert record["schema_version"] == 2
+    assert record["drill_id"] == ""
     assert record["host"] == "staging-host"
     assert record["python"] == "3.12.0"
     assert record["commit"] == "abc123"
