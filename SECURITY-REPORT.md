@@ -19,24 +19,24 @@ Scope: repository and CI-verifiable launch controls. Deployment-specific claims 
 | Input/request hardening | PASS | Bounded auth inputs and validated request IDs with mutation traceability. |
 | Security headers | PASS | Application middleware covers browser security headers; deployment TLS behavior remains separate. |
 | Audit integrity | PASS | Tamper-evident security/evaluation chains and rollback regression tests. |
-| Paper ledger integrity | PASS | Paper-only lifecycle is linked to evaluations, validates price/quantity/position state, and detects tampering. |
+| Paper ledger integrity | PASS | Paper-only lifecycle is linked to evaluations, validates price/quantity/position state, detects tampering, and commits lifecycle/decision records atomically. |
 | Financial execution isolation | PASS | Repository architecture retains no automatic trade execution path; rules prohibit leverage/options and require human approval. |
 | Evidence independence | PASS | Confirmation provenance fails closed on ambiguous mixed lineage; strong alerts require independent confirmations. |
 | SQLite backup tooling | PASS | Verified online backup and restore helpers perform SQLite integrity checks and refuse unsafe overwrite. |
-| Backup recovery drill | NOT VERIFIED | Must restore a real staging backup, start the app against it, and verify auth/audit/journal/paper reads. |
+| Backup recovery drill | NOT VERIFIED | Automated non-destructive SQLite integrity/row-count evidence tooling exists; a real staging restore must still verify auth/audit/journal/dashboard/paper reads. |
 | TLS / HTTPS termination | NOT VERIFIED | Requires selected production host/reverse proxy and external verification. |
 | Production secret injection | NOT VERIFIED | MFA encryption key, bootstrap provisioning, provider keys, filesystem permissions, and secret rotation require deployment verification. |
 | Production trusted origins/proxies | NOT VERIFIED | Exact origin and proxy allowlists depend on deployment topology. |
 | Production database permissions/encryption | NOT VERIFIED | Host filesystem permissions and backup-at-rest encryption require infrastructure verification. |
 | Provider automation rights | REVIEW | SEC/FRED/Treasury have documented controls; Messari remains conditional; Alpha Vantage, Finviz, and Invo remain blocked pending permission/identity verification. |
-| Staging acceptance | NOT VERIFIED | Full deployment acceptance has not yet been run against a production-like environment. |
+| Staging acceptance | NOT VERIFIED | Automated acceptance/evidence tooling now gates health, financial safety rules, audit-chain validity, and paper-ledger validity; it has not yet been run against the target staging host. |
 | External/non-destructive penetration test | NOT VERIFIED | Repository attack/regression tests exist, but an externally reachable staging target does not yet exist. |
 
 ## CI evidence
 
 The repository CI runs on Python 3.11 and 3.12 and executes the complete pytest suite on pull requests and main. Launch-critical macro ingestion modules also receive Ruff checks. PRs are merged only after successful CI and review-thread inspection in the current engineering workflow.
 
-Automated coverage includes authentication state transitions, password changes and history, compromised-password behavior, MFA and recovery, session lifecycle, CSRF/origin handling, request traceability, administrator mutations, audit rollback behavior, evidence/risk rules, frontend/API contracts, backup integrity, and paper-ledger integrity.
+Automated coverage includes authentication state transitions, password changes and history, compromised-password behavior, MFA and recovery, session lifecycle, CSRF/origin handling, request traceability, administrator mutations, audit rollback behavior, evidence/risk rules, frontend/API contracts, backup integrity, atomic paper lifecycle rollback, and paper-ledger integrity.
 
 ## Launch blockers
 
