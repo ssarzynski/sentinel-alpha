@@ -26,6 +26,39 @@ def table_counts(database: Path) -> dict[str, int]:
         }
 
 
+
+def database_content_fingerprint(database: Path) -> str:
+    """Hash logical schema and row content without exposing values in evidence."""
+    digest = hashlib.sha256()
+    with sqlite3.connect(database) as connection:
+        tables = [
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            )
+        ]
+        for table in tables:
+            digest.update(b"T\0" + table.encode("utf-8") + b"\0")
+            columns = connection.execute(f'PRAGMA table_info("{table}")').fetchall()
+            for column in columns:
+                digest.update(
+                    json.dumps(column, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8")
+                    + b"\n"
+                )
+            rows = connection.execute(f'SELECT * FROM "{table}" ORDER BY rowid').fetchall()
+            for row in rows:
+                encoded = []
+                for value in row:
+                    if isinstance(value, bytes):
+                        encoded.append({"blob_sha256": hashlib.sha256(value).hexdigest(), "length": len(value)})
+                    else:
+                        encoded.append({"type": type(value).__name__, "value": value})
+                digest.update(
+                    json.dumps(encoded, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8")
+                    + b"\n"
+                )
+    return digest.hexdigest()
+
 def file_sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -50,6 +83,7 @@ def run_drill(source: Path, backup: Path, restored: Path, drill_id: str = "", co
     }
     try:
         before = table_counts(source)
+        source_content_sha256 = database_content_fingerprint(source)
         create_verified_backup(source, backup)
         record["backup_sha256"] = file_sha256(backup)
         record["checks"].append({"name": "backup_integrity", "passed": True})
@@ -57,6 +91,11 @@ def run_drill(source: Path, backup: Path, restored: Path, drill_id: str = "", co
         record["restored_sha256"] = file_sha256(restored)
         record["checks"].append({"name": "restore_integrity", "passed": True})
         after = table_counts(restored)
+        restored_content_sha256 = database_content_fingerprint(restored)
+        record["source_content_sha256"] = source_content_sha256
+        record["restored_content_sha256"] = restored_content_sha256
+        content_preserved = source_content_sha256 == restored_content_sha256
+        record["checks"].append({"name": "logical_content_preserved", "passed": content_preserved})
         preserved = before == after
         record["checks"].append(
             {"name": "table_row_counts_preserved", "passed": preserved}

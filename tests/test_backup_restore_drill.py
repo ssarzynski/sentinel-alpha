@@ -23,6 +23,7 @@ def test_drill_preserves_tables_and_rows(tmp_path):
         "backup_integrity",
         "restore_integrity",
         "table_row_counts_preserved",
+        "logical_content_preserved",
     }
 
 
