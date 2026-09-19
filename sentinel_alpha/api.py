@@ -198,6 +198,7 @@ def dashboard_summary() -> dict[str, Any]:
         "blocked_count": blocked,
         "paper_decision_count": len(paper),
         "audit_chain_valid": journal.verify_integrity(),
+        "paper_ledger_valid": get_paper_ledger().verify_integrity(),
         "automatic_trading": False,
         "human_approval_required": True,
     }
