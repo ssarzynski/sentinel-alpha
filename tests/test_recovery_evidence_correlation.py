@@ -28,3 +28,27 @@ def test_backup_drill_evidence_carries_correlation_and_digests(tmp_path):
     assert len(record["backup_sha256"]) == 64
     assert len(record["restored_sha256"]) == 64
     assert record["backup_sha256"] == record["restored_sha256"]
+
+
+def test_logical_content_fingerprint_detects_same_row_count_mutation(tmp_path):
+    original = tmp_path / "original.db"
+    changed = tmp_path / "changed.db"
+    for path, value in ((original, "alpha"), (changed, "bravo")):
+        with sqlite3.connect(path) as connection:
+            connection.execute("CREATE TABLE sample(value TEXT)")
+            connection.execute("INSERT INTO sample VALUES (?)", (value,))
+    assert _MODULE.table_counts(original) == _MODULE.table_counts(changed)
+    assert _MODULE.database_content_fingerprint(original) != _MODULE.database_content_fingerprint(changed)
+
+
+def test_backup_drill_records_matching_logical_content_fingerprints(tmp_path):
+    source = tmp_path / "source-content.db"
+    backup = tmp_path / "backup-content.db"
+    restored = tmp_path / "restored-content.db"
+    with sqlite3.connect(source) as connection:
+        connection.execute("CREATE TABLE sample(id INTEGER PRIMARY KEY, payload BLOB)")
+        connection.execute("INSERT INTO sample(payload) VALUES (?)", (b"secret-bytes",))
+    record = _MODULE.run_drill(source, backup, restored, "drill-content", "commit-content")
+    assert record["passed"] is True
+    assert record["source_content_sha256"] == record["restored_content_sha256"]
+    assert dict((item["name"], item["passed"]) for item in record["checks"])["logical_content_preserved"] is True
