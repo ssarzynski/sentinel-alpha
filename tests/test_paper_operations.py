@@ -3,7 +3,8 @@ from datetime import datetime, timezone
 import pytest
 
 from sentinel_alpha.evidence_roles import ClassifiedEvidence, EvidenceRole
-from sentinel_alpha.journal import EvaluationJournal\nfrom sentinel_alpha.paper_operations import PaperOperationLedger
+from sentinel_alpha.journal import EvaluationJournal
+from sentinel_alpha.paper_operations import PaperOperationLedger
 from sentinel_alpha.pipeline import evaluate_records
 from sentinel_alpha.provenance import SourceIdentity, normalize_record
 from sentinel_alpha.risk_gate import TradeProposal
