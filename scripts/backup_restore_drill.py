@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import hashlib
 import platform
 import sqlite3
 import sys
@@ -25,9 +26,19 @@ def table_counts(database: Path) -> dict[str, int]:
         }
 
 
-def run_drill(source: Path, backup: Path, restored: Path) -> dict:
+def file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def run_drill(source: Path, backup: Path, restored: Path, drill_id: str = "", commit: str = "") -> dict:
     record = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "drill_id": drill_id,
+        "commit": commit,
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "host": platform.node(),
         "python": platform.python_version(),
@@ -40,8 +51,10 @@ def run_drill(source: Path, backup: Path, restored: Path) -> dict:
     try:
         before = table_counts(source)
         create_verified_backup(source, backup)
+        record["backup_sha256"] = file_sha256(backup)
         record["checks"].append({"name": "backup_integrity", "passed": True})
         restore_verified_backup(backup, restored)
+        record["restored_sha256"] = file_sha256(restored)
         record["checks"].append({"name": "restore_integrity", "passed": True})
         after = table_counts(restored)
         preserved = before == after
@@ -62,9 +75,11 @@ def main() -> int:
     parser.add_argument("--backup", required=True)
     parser.add_argument("--restored", required=True)
     parser.add_argument("--evidence-file", required=True)
+    parser.add_argument("--drill-id", required=True)
+    parser.add_argument("--commit", required=True)
     args = parser.parse_args()
 
-    record = run_drill(Path(args.source), Path(args.backup), Path(args.restored))
+    record = run_drill(Path(args.source), Path(args.backup), Path(args.restored), args.drill_id, args.commit)
     destination = Path(args.evidence_file)
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
